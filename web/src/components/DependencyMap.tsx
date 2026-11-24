@@ -75,7 +75,7 @@ export function DependencyMap({ nodes, edges }: { nodes: Node[]; edges: Edge[] }
               <rect width={W} height={H} rx="6" fill={tone.fill} stroke={tone.stroke} strokeWidth={n.status === "Blocked" ? 2 : 1.2} strokeDasharray={upstream ? "5 3" : undefined} />
               <text x="12" y="20" fontSize="12" fontWeight="700" fill="var(--ink-2)">{n.activity_code}</text>
               <text x={W - 12} y="20" fontSize="11" fontWeight="600" fill={tone.text} textAnchor="end">
-                {n.is_overdue && n.dependency_state !== "done" ? "Overdue" : upstream ? "Held upstream" : LABEL[n.dependency_state]}
+                {n.is_overdue && n.dependency_state !== "done" ? "Overdue" : upstream ? "Held upstream" : n.status === "In Progress" ? "In progress" : n.status === "Submitted" ? "Submitted" : LABEL[n.dependency_state]}
               </text>
               <text x="12" y="38" fontSize="12.5" fontWeight="600" fill="var(--ink)">
                 {n.title.length > 23 ? n.title.slice(0, 22) + "…" : n.title}
