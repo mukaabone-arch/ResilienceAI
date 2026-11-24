@@ -173,7 +173,7 @@ def update_activity(ctx: Ctx, activity_id: UUID, data: dict) -> dict:
     o, n = audit.diff(act, new)
     audit.record(ctx, "activity.updated", "Activity", activity_id, event_id=ev["id"], old=o, new={**n, "comment": data.get("comment")})
     for kind, msg in events_to_log:
-        log(ctx, ev["id"], kind, msg + (f" — {data['comment']}" if data.get("comment") else ""), activity_id=activity_id)
+        log(ctx, ev["id"], kind, msg + (f". {data['comment']}" if data.get("comment") else ""), activity_id=activity_id)
     if new["status"] == A.BLOCKED.value:
         _notify_downstream_blocked(ctx, ev, new)
     if new["status"] == A.SUBMITTED.value and new["reviewer_user_id"]:
@@ -296,7 +296,7 @@ def update_readiness_item(ctx: Ctx, item_id: UUID, data: dict) -> dict:
     audit.record(ctx, "readiness.updated", "ReadinessItem", item_id, event_id=ev["id"],
                  old={"status": item["status"]}, new={"status": new["status"], "comment": data.get("comment")})
     log(ctx, ev["id"], "Blocker" if new["status"] in ("Blocked", "Failed") else "Status",
-        f"Readiness '{new['title']}' → {new['status']}" + (f" — {data['comment']}" if data.get("comment") else ""))
+        f"Readiness '{new['title']}' → {new['status']}" + (f". {data['comment']}" if data.get("comment") else ""))
     if item["status"] == RS.READY.value and new["status"] != RS.READY.value:
         _readiness_regressed(ctx, ev, f"Readiness item '{new['title']}' is no longer Ready")
     return new
@@ -589,8 +589,10 @@ def record_approval(ctx: Ctx, event_id: UUID, data: dict) -> dict:
         event_version=ev["version"], readiness_snapshot=snapshot, policy_version=authz.POLICY_VERSION,
     ).returning(ap)).mappings().one())
     audit.record(ctx, "approval.recorded", "Approval", out["id"], event_id=event_id, new=out)
-    log(ctx, event_id, "Decision", f"{kind} decision: {decision} by {ctx.me.display_name}"
-        + (f" — {data['comments']}" if data.get("comments") else "")
+    label = {"Go/No-go": "Go/no-go", "ReadinessException": "Readiness exception", "RiskReview": "Risk review",
+             "Business": "Business sign-off", "Closure": "Closure approval", "Resume": "Resume"}.get(kind.value, kind.value)
+    log(ctx, event_id, "Decision", f"{label}: {decision.lower()} by {ctx.me.display_name}"
+        + (f". {data['comments']}" if data.get("comments") else "")
         + (f" (conditions: {data['conditions']})" if data.get("conditions") else ""))
     return out
 

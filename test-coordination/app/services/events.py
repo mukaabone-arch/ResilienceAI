@@ -23,6 +23,14 @@ from . import audit, notifications
 from .common import active_stakeholders, check_version, event, log, next_seq, now, participant_ids, row
 
 CATEGORY_PREFIX = {"Infrastructure": "DR", "Application": "DR", "Database": "DR", "Cyber": "CY", "Business": "BC"}
+LOG_TEXT = {
+    "submit": "Plan submitted for approval", "approve_plan": "Plan approved; mobilisation started",
+    "return_to_draft": "Plan sent back to draft", "begin_readiness": "Readiness tracking started",
+    "mark_ready": "Marked ready for the go decision", "return_to_mobilising": "Returned to mobilising",
+    "start": "Live coordination started", "pause": "Coordination paused", "resume": "Coordination resumed",
+    "complete": "Coordination completed; closure started", "abort": "Test stopped (outcome: aborted)",
+    "close": "Test formally closed", "cancel": "Test cancelled",
+}
 EDITABLE_FIELDS = ("title", "description", "objectives", "business_impact", "criticality", "test_manager_user_id")
 
 
@@ -250,6 +258,8 @@ def get_event_overview(ctx: Ctx, event_id: UUID) -> dict:
     return {**ev, "allowed_actions": lc.allowed_actions(S(ev["lifecycle_status"])),
             "can_manage": authz.can_manage_event(ctx, ev),
             "readiness": gate.__dict__, "activity_counts": act, "open_blockers": blockers,
+            "go_decision_valid": valid_approval(ctx, event_id, AT.GO_NO_GO) is not None,
+            "stakeholder_count": len(active_stakeholders(ctx, event_id)),
             "upcoming_milestones": upcoming, "generated_at": now()}
 
 
@@ -292,7 +302,7 @@ def update_event(ctx: Ctx, event_id: UUID, data: dict) -> dict:
         if override:
             _record_blackout_override(ctx, new, data["blackout_override_reason"], conflicts)
         n = supersede_approvals(ctx, event_id, [AT.GO_NO_GO])
-        log(ctx, event_id, "Lifecycle", f"Rescheduled: {data['reschedule_reason']}"
+        log(ctx, event_id, "Lifecycle", f"Rescheduled. Reason: {data['reschedule_reason']}."
             + (" (Go decision invalidated; back to Readiness)" if n or status == S.READY else ""))
         # Only affected stakeholders are notified (§7 business rule).
         notifications.enqueue(ctx, "schedule_changed", event=new, recipients=participant_ids(ctx, new),
@@ -464,7 +474,7 @@ def transition(ctx: Ctx, event_id: UUID, action: str, *, reason: str | None = No
                  new={"lifecycle_status": new["lifecycle_status"], "reason": reason, "outcome": new["outcome"],
                       "readiness": {"passed": gate.passed, "unmet": gate.unmet, "excepted": gate.excepted}})
     log(ctx, event_id, "Lifecycle" if action not in ("pause", "abort", "resume") else "Decision",
-        f"{tr.description or action}: {ev['lifecycle_status']} → {new['lifecycle_status']}" + (f" — {reason}" if reason else ""))
+        LOG_TEXT.get(action, action) + (f". Reason: {reason}" if reason else ""))
 
     trig = {"start": "test_started", "close": "test_closed"}.get(action)
     if trig or action in ("pause", "abort", "resume", "cancel"):

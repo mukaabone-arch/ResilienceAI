@@ -14,6 +14,7 @@ createdb resilience
 export WORKER_DATABASE_URL=postgresql+psycopg://postgres@localhost/resilience
 export DATABASE_URL=postgresql+psycopg://app_user:app@localhost/resilience
 python -m scripts.seed --reset        # applies migrations/*.sql and seeds tenant BANK with a user per role
+python -m scripts.demo                # optional: reset and load a demo portfolio (tests at every stage)
 uvicorn app.main:app --reload         # OpenAPI docs at http://localhost:8000/docs
 ```
 

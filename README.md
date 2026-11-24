@@ -5,4 +5,5 @@ Agentic AI repositories
 
 | Module | Description |
 |---|---|
+| [`web/`](web/) | Next.js frontend for test coordination: My work, Tests, the test workspace (readiness gate, dependency map, timeline, closure) and the Command centre. See its [README](web/README.md). |
 | [`test-coordination/`](test-coordination/) | Banking Test Programme & Coordination Centre: FastAPI + PostgreSQL backend for planning, mobilising, coordinating and governing resilience tests (MVP increment 1). See its [README](test-coordination/README.md) and [design notes](test-coordination/docs/DESIGN_NOTES.md). |

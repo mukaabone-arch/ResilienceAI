@@ -26,6 +26,28 @@ def me(ctx: Ctx = D):
             "roles": sorted(ctx.me.roles), "is_external": ctx.me.is_external}
 
 
+@router.get("/users", tags=["directory"], summary="People in this tenant (for assignment pickers)")
+def users(ctx: Ctx = D):
+    from sqlalchemy import select
+
+    from ..db import t
+    if ctx.me.is_external:
+        return []
+    u = t("users")
+    return [dict(r) for r in ctx.conn.execute(
+        select(u.c.id, u.c.display_name, u.c.department, u.c.roles, u.c.is_external)
+        .where(u.c.is_active).order_by(u.c.display_name)).mappings()]
+
+
+@router.get("/test-programmes", tags=["programmes"])
+def list_programmes(ctx: Ctx = D):
+    from sqlalchemy import select
+
+    from ..db import t
+    p = t("test_programmes")
+    return [dict(r) for r in ctx.conn.execute(select(p).order_by(p.c.start_date.desc())).mappings()]
+
+
 @router.get("/me/workspace", tags=["me"], summary="Screen 06 — My Workspace")
 def my_workspace(ctx: Ctx = D):
     return views.my_workspace(ctx)
