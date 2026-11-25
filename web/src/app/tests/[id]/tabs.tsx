@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { ActivityActions } from "@/components/ActivityActions";
 import { DependencyMap } from "@/components/DependencyMap";
+import { useEvidenceUpload } from "@/components/EvidenceUpload";
 import { ReadinessGate } from "@/components/ReadinessGate";
 import { ErrorNotice, Loading, Panel, Pill, useAction, useDialog } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, downloadFile, useApi } from "@/lib/api";
 import { fmtDateTime, fmtTime, relative } from "@/lib/format";
 
 type Ctx = { ev: any; me: any; isPM: boolean; reloadEvent: () => void };
@@ -163,6 +164,7 @@ export function ReadinessTab(ctx: Ctx) {
   const refresh = () => { reload(); reloadEvent(); };
   const { run, busy, feedback } = useAction(refresh);
   const { ask, node } = useDialog();
+  const upload = useEvidenceUpload((msg) => run(async () => undefined, msg));   // hooks before any early return
   if (error) return <ErrorNotice error={error} />;
   if (!rd) return <Loading what="Checking readiness" />;
 
@@ -195,12 +197,8 @@ export function ReadinessTab(ctx: Ctx) {
       fields: [{ name: "comments", label: "Justification", kind: "textarea", required: true }] });
     if (v) run(() => api("POST", `/test-events/${ev.id}/approvals`, { approval_type: "ReadinessException", decision: "Approved", subject_id: item.id, comments: v.comments }), "Exception granted");
   }
-  async function evidence(item: any) {
-    const v = await ask({ title: `Attach evidence for "${item.title}"`, confirm: "Attach evidence", fields: [
-      { name: "filename", label: "Document name", required: true },
-      { name: "storage_reference", label: "Link to the document", required: true, hint: "For example a ServiceNow change link" },
-    ] });
-    if (v) run(() => api("POST", `/test-readiness-items/${item.id}/evidence`, { evidence_type: "ExternalRecord", ...v }), "Evidence attached for review");
+  function evidence(item: any) {
+    upload.open({ kind: "readiness", id: item.id, label: `"${item.title}"` });
   }
   async function addItem() {
     const v = await ask({ title: "Add a readiness condition", confirm: "Add condition", fields: [
@@ -238,12 +236,13 @@ export function ReadinessTab(ctx: Ctx) {
           return (
             <div className="task-actions">
               {editable && mine && <button className="btn" onClick={() => setStatus(item)}>Update</button>}
-              {editable && mine && item.evidence_required && s === "unmet" && <button className="btn quiet" onClick={() => evidence(item)}>Attach evidence</button>}
+              {editable && mine && item.evidence_required && s === "unmet" && <button className="btn quiet" onClick={() => evidence(item)}>Add evidence</button>}
               {preReady && canException && s === "unmet" && <button className="btn quiet" onClick={() => exception(item)}>Grant exception</button>}
             </div>
           );
         }} />
         {preReady && ev.can_manage && <div><button className="btn" onClick={addItem}>Add readiness condition</button></div>}
+        {upload.node}
       </div>
       <div className="stack">
         <Panel title="Go decision">
@@ -539,3 +538,94 @@ export function ClosureTab(ctx: Ctx) {
   );
 }
 
+
+/* ------------------------------------------------------------------ Evidence */
+const fmtBytes = (n?: number | null) => (n == null ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+
+export function EvidenceTab(ctx: Ctx) {
+  const { ev } = ctx;
+  const { data: rows, error, reload } = useApi<any[]>(`/test-events/${ev.id}/evidence`);
+  const { run, feedback } = useAction(reload);
+  const { ask, node } = useDialog();
+  const [checks, setChecks] = useState<Record<string, any>>({});
+
+  async function review(x: any, accept: boolean) {
+    const v = accept ? {} : await ask({ title: `Reject ${x.evidence_code}`, confirm: "Reject", danger: true,
+      description: "The person who submitted it is told why, so they can resubmit.",
+      fields: [{ name: "comment", label: "What's wrong with it?", kind: "textarea", required: true }] });
+    if (v) run(() => api("POST", `/test-evidence/${x.id}/review`, { accept, comment: (v as any).comment }),
+      accept ? `${x.evidence_code} accepted` : `${x.evidence_code} rejected`);
+  }
+  async function verify(x: any) {
+    run(async () => {
+      const r = await api("POST", `/test-evidence/${x.id}/verify`);
+      setChecks((c) => ({ ...c, [x.id]: r }));
+      if (r.valid === false) throw new Error("The stored file no longer matches its fingerprint. It may have been altered; it won't be served.");
+    }, `${x.evidence_code}: file matches its fingerprint`);
+  }
+
+  if (error) return <ErrorNotice error={error} />;
+  if (!rows) return <Loading what="Loading evidence" />;
+  const pending = rows.filter((x) => x.review_status === "Pending").length;
+  return (
+    <div className="stack">
+      {feedback}
+      <Panel title="Evidence register" meta={`${rows.length} item${rows.length === 1 ? "" : "s"}${pending ? `, ${pending} awaiting review` : ""}`} flush>
+        {!rows.length ? <p className="panel-empty">No evidence yet. Owners add it from their activities or readiness conditions.</p> : (
+          <table className="table">
+            <thead><tr><th>Evidence</th><th>For</th><th>Submitted</th><th>Review</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((x) => {
+                const chk = checks[x.id];
+                return (
+                  <tr key={x.id} style={{ opacity: x.superseded ? 0.55 : 1 }}>
+                    <td>
+                      <div className="title" style={{ fontSize: "var(--t-sm)" }}>{x.filename ?? x.storage_reference}</div>
+                      <div className="sub">
+                        <span className="code">{x.evidence_code}</span>{" "}
+                        {x.storage_backend === "link" ? "Link to an external record" : `${x.evidence_type}, ${fmtBytes(x.size_bytes)}`}
+                        {x.superseded ? ", replaced by a newer upload" : ""}
+                      </div>
+                      {x.storage_backend !== "link" && (
+                        <div className="sub xs" title={x.checksum}>
+                          Fingerprint {x.checksum?.slice(0, 12)}…
+                          {chk ? (chk.valid ? <span style={{ color: "var(--ready)", fontWeight: 600 }}> verified just now</span>
+                            : <span className="overdue"> DOES NOT MATCH</span>)
+                            : x.last_verified_at ? <> verified {fmtDateTime(x.last_verified_at)}</> : null}
+                          {x.scan_status === "NotScanned" && <>, not malware-scanned</>}
+                        </div>
+                      )}
+                    </td>
+                    <td className="small">{x.activity_code ? <><span className="code">{x.activity_code}</span> {x.activity_title}</> : x.readiness_title ? <>Readiness: {x.readiness_title}</> : "—"}</td>
+                    <td className="small">{x.submitted_by_name}<div className="sub">{fmtDateTime(x.submitted_at, ev.timezone)}</div></td>
+                    <td><Pill value={x.review_status === "Accepted" ? "Approved" : x.review_status === "Rejected" ? "Rejected" : "Pending"} />
+                      {x.review_comment && <div className="sub">{x.review_comment}</div>}
+                      {x.reviewed_by_name && <div className="sub">{x.reviewed_by_name}</div>}</td>
+                    <td>
+                      <div className="task-actions">
+                        {x.storage_backend === "link"
+                          ? (/^https?:\/\//.test(x.storage_reference) ? <a className="btn quiet" href={x.storage_reference} target="_blank" rel="noopener noreferrer">Open link</a> : null)
+                          : <>
+                            <button className="btn" onClick={() => run(() => downloadFile(`/test-evidence/${x.id}/download`, x.filename ?? "evidence"))}>Download</button>
+                            <button className="btn quiet" onClick={() => verify(x)}>Verify</button>
+                          </>}
+                        {x.can_review && <>
+                          <button className="btn primary" onClick={() => review(x, true)}>Accept</button>
+                          <button className="btn" onClick={() => review(x, false)}>Reject</button>
+                        </>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+      <Panel title="How evidence is protected">
+        <p className="small muted">Uploaded files are stored outside the database and served only as downloads. Each file&apos;s SHA-256 fingerprint is taken in your browser and again on the server when it is uploaded, and checked again on every download. If a stored file has changed, it isn&apos;t served and the failure is written to the audit record.</p>
+      </Panel>
+      {node}
+    </div>
+  );
+}

@@ -96,8 +96,9 @@ def test_core_banking_journey(journey, as_):
         as_(sub).post(f"/test-stakeholders/{st[sub]['id']}/respond", expect=200, json={"accept": True})
     as_("kiran.net").post(f"/test-stakeholders/{st['anita.infra']['id']}/respond", expect=403, json={"accept": True})
     ws = as_("ext.vendor").get("/me/workspace", expect=200).json()
-    assert len(ws["pending_acknowledgements"]) == 1
-    as_("ext.vendor").post(f"/acknowledgements/{ws['pending_acknowledgements'][0]['id']}", expect=200, json={"accept": True})
+    acks = [k for k in ws["pending_acknowledgements"] if k["event_id"] == eid]
+    assert len(acks) == 1
+    as_("ext.vendor").post(f"/acknowledgements/{acks[0]['id']}", expect=200, json={"accept": True})
 
     # Vendor sees only their own activity, not other assignments
     v_acts = as_("ext.vendor").get(f"/test-events/{eid}/activities", expect=200).json()
