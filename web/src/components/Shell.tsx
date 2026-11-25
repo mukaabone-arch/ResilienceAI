@@ -20,6 +20,23 @@ export function BrandMark({ className = "brand-mark" }: { className?: string }) 
   );
 }
 
+/* Line icons for the sections, 24-unit grid, drawn in the current text colour. */
+const ICONS: Record<string, ReactNode> = {
+  "/workspace": <><path d="M9 6h11M9 12h11M9 18h11" /><path d="m3.5 6 1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11M3.5 18l1.5 1.5L7.5 17" /></>,
+  "/tests": <><path d="M9 3h6M10 3v6.5L4.8 18.2A1.8 1.8 0 0 0 6.3 21h11.4a1.8 1.8 0 0 0 1.5-2.8L14 9.5V3" /><path d="M7.5 15h9" /></>,
+  "/calendar": <><rect x="3.5" y="5" width="17" height="15.5" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
+  "/reports": <><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></>,
+  "/command": <><path d="M4.5 18a8.5 8.5 0 1 1 15 0" /><path d="m12 13.5 4-4" /><circle cx="12" cy="14" r="1.3" /></>,
+};
+
+function NavIcon({ href }: { href: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {ICONS[href]}
+    </svg>
+  );
+}
+
 const PORTFOLIO_ROLES = ["EnterpriseProgrammeAdministrator", "DRProgrammeManager", "RiskCompliance", "SeniorManagement", "Auditor"];
 
 export function AppFrame({ children }: { children: ReactNode }) {
@@ -95,6 +112,7 @@ function Shell({ children }: { children: ReactNode }) {
         <nav className="nav" aria-label="Main">
           {nav.map((n) => (
             <Link key={n.href} href={n.href} aria-current={path.startsWith(n.href) && !(n.href === "/tests" && path === "/tests/new") ? "page" : undefined}>
+              <NavIcon href={n.href} />
               {n.label}
               {n.count ? <span className="count" aria-label={`${n.count} need attention`}>{n.count}</span> : null}
             </Link>
@@ -103,6 +121,7 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="rail-foot">
           {me && (
             <>
+              <span className={me.is_external ? "av ext" : "av"} aria-hidden="true">{initials(me.display_name)}</span>
               <div className="who">{me.display_name}</div>
               <div className="role">{me.roles.map(roleName).join(", ")}</div>
             </>
