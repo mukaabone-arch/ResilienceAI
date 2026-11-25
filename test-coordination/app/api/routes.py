@@ -96,6 +96,11 @@ def create_blackout(data: sc.BlackoutIn, ctx: Ctx = D):
     return calendar.create_blackout(ctx, body(data))
 
 
+@router.get("/teams", tags=["directory"], summary="Teams and their active members (for adding a whole team to a test)")
+def teams(ctx: Ctx = D):
+    return people.list_teams(ctx)
+
+
 @router.get("/business-services", tags=["directory"])
 def business_services(ctx: Ctx = D):
     return calendar.business_services(ctx)

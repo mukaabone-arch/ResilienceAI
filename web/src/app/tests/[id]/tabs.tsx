@@ -162,6 +162,7 @@ export function ReadinessTab(ctx: Ctx) {
   const { ev, me, isPM, reloadEvent } = ctx;
   const { data: rd, error, reload } = useApi<any>(`/test-events/${ev.id}/readiness`);
   const { data: users } = useApi<any[]>(ev.can_manage ? "/users" : null);
+  const { data: teams } = useApi<any[]>(ev.can_manage ? "/teams" : null);
   const refresh = () => { reload(); reloadEvent(); };
   const { run, busy, feedback } = useAction(refresh);
   const { ask, node } = useDialog();
@@ -302,6 +303,7 @@ export function PeopleTab(ctx: Ctx) {
   const [history, setHistory] = useState(false);
   const { data: people, error, reload } = useApi<any[]>(`/test-events/${ev.id}/stakeholders${history ? "?include_history=true" : ""}`);
   const { data: users } = useApi<any[]>(ev.can_manage ? "/users" : null);
+  const { data: teams } = useApi<any[]>(ev.can_manage ? "/teams" : null);
   const { run, feedback } = useAction(reload);
   const { ask, node } = useDialog();
   const open = !["Closed", "Cancelled"].includes(ev.lifecycle_status);
@@ -311,15 +313,33 @@ export function PeopleTab(ctx: Ctx) {
   async function add() {
     const v = await ask({ title: "Add a person to this test", confirm: "Add and notify", description: "They receive an invitation and are asked to acknowledge it.",
       fields: [
-        { name: "user_id", label: "Person", kind: "select", options: candidates.map((u) => ({ value: u.id, label: `${u.display_name}, ${u.department ?? ""}` })) },
+        { name: "user_id", label: "Person", kind: "select", required: true, options: candidates.map((u) => ({ value: u.id, label: `${u.display_name}, ${u.department ?? ""}` })) },
         { name: "event_role", label: "Role in this test", required: true, hint: "For example Database recovery lead" },
       ] });
     if (v) run(() => api("POST", `/test-events/${ev.id}/stakeholders`, v), "Added and notified");
   }
+  // Teams with at least one active member who isn't already on this test
+  const addableTeams = (teams ?? []).map((t) => ({ ...t, fresh: t.members.filter((m: any) => !activeIds.has(m.user_id)) }))
+    .filter((t) => t.fresh.length > 0);
+  async function addTeam() {
+    const v = await ask({ title: "Add a team to this test", confirm: "Add team and notify",
+      description: "Everyone in the team who isn't already on this test is added with the same role. Each person receives an invitation and is asked to acknowledge it. You can change or replace individuals afterwards.",
+      fields: [
+        { name: "team_id", label: "Team", kind: "select", required: true, options: addableTeams.map((t) => {
+          const already = t.members.length - t.fresh.length;
+          return { value: t.id, label: `${t.name}: ${t.fresh.map((m: any) => m.display_name).join(", ")}${already ? ` (${already} already on this test)` : ""}` };
+        }) },
+        { name: "event_role", label: "Role in this test", required: true, hint: "Given to everyone added, for example Database recovery" },
+      ] });
+    if (!v) return;
+    const team = addableTeams.find((t) => t.id === v.team_id);
+    run(() => api<any[]>("POST", `/test-events/${ev.id}/stakeholders`, v),
+      (added) => `Added ${added.length === 1 ? added[0].display_name : `${added.length} people`} from ${team?.name ?? "the team"} and notified`);
+  }
   async function replace(p: any) {
     const v = await ask({ title: `Replace ${p.display_name}`, confirm: "Replace", description: "Their open activities move to the new person. Assignment history is kept.",
       fields: [
-        { name: "new_user_id", label: "Replacement", kind: "select", options: candidates.map((u) => ({ value: u.id, label: u.display_name })) },
+        { name: "new_user_id", label: "Replacement", kind: "select", required: true, options: candidates.map((u) => ({ value: u.id, label: u.display_name })) },
         { name: "reason", label: "Reason", required: true },
       ] });
     if (v) run(() => api("POST", `/test-stakeholders/${p.id}/replace`, v), `${p.display_name} replaced`);
@@ -332,6 +352,8 @@ export function PeopleTab(ctx: Ctx) {
         <label className="small" style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} /> Show replaced
         </label>
+        {ev.can_manage && open && <button className="btn" onClick={addTeam} disabled={!addableTeams.length}
+          title={addableTeams.length ? undefined : "Everyone in every team is already on this test"}>Add a team</button>}
         {ev.can_manage && open && <button className="btn" onClick={add}>Add person</button>}
       </>} flush>
         <ErrorNotice error={error} />
@@ -342,7 +364,7 @@ export function PeopleTab(ctx: Ctx) {
               {people.map((p) => (
                 <tr key={p.id} style={{ opacity: p.is_active ? 1 : 0.55 }}>
                   <td><div className="title" style={{ fontSize: "var(--t-sm)" }}>{p.display_name}</div><div className="sub">{p.department}{p.is_external ? ", external" : ""}</div></td>
-                  <td>{p.event_role}</td>
+                  <td>{p.event_role}{p.team_name && <div className="sub">Added with {p.team_name}</div>}</td>
                   <td><Pill value={p.assignment_status} /></td>
                   <td>{p.acknowledged_at ? fmtDateTime(p.acknowledged_at) : <span className="muted">Not yet</span>}</td>
                   <td>{ev.can_manage && open && p.is_active && <button className="btn quiet" onClick={() => replace(p)}>Replace</button>}</td>

@@ -29,10 +29,15 @@ def add_stakeholders(ctx: Ctx, event_id: UUID, data: dict) -> list[dict]:
     users: list[UUID] = []
     if data.get("user_id"):
         users.append(data["user_id"])
+    team = None
     if data.get("team_id"):
-        tm = t("team_members")
-        row(ctx, "teams", data["team_id"])
-        users += [r[0] for r in ctx.conn.execute(select(tm.c.user_id).where(tm.c.team_id == data["team_id"]))]
+        tm, uu = t("team_members"), t("users")
+        team = row(ctx, "teams", data["team_id"])
+        users += [r[0] for r in ctx.conn.execute(  # inactive members are skipped, not an error
+            select(tm.c.user_id).join(uu, uu.c.id == tm.c.user_id)
+            .where(and_(tm.c.team_id == data["team_id"], uu.c.is_active)).order_by(uu.c.display_name))]
+        if not users:
+            raise Unprocessable(f"{team['name']} has no active members")
     if not users:
         raise Unprocessable("Provide user_id or team_id")
     s, u = t("test_stakeholders"), t("users")
@@ -59,14 +64,30 @@ def add_stakeholders(ctx: Ctx, event_id: UUID, data: dict) -> list[dict]:
             body=f"Please acknowledge your assignment. Window: {ev['planned_start_at']} – {ev['planned_end_at']} ({ev['timezone']}).",
             dedupe=f"assign:{st['id']}")
         created.append({**st, "display_name": usr["display_name"]})
+    if team and not created:
+        raise Conflict(f"Everyone in {team['name']} is already on this test")
     return created
+
+
+def list_teams(ctx: Ctx) -> list[dict]:
+    """Teams with their active members, for the 'Add a team' picker. Not shown to external users."""
+    if ctx.me.is_external:
+        return []
+    tt, tm, u = t("teams"), t("team_members"), t("users")
+    teams = [dict(r) for r in ctx.conn.execute(select(tt.c.id, tt.c.name, tt.c.lead_user_id).order_by(tt.c.name)).mappings()]
+    members: dict = {}
+    for r in ctx.conn.execute(select(tm.c.team_id, u.c.id, u.c.display_name, u.c.department)
+                              .join(u, u.c.id == tm.c.user_id).where(u.c.is_active).order_by(u.c.display_name)).mappings():
+        members.setdefault(r["team_id"], []).append({"user_id": r["id"], "display_name": r["display_name"],
+                                                     "department": r["department"]})
+    return [{**tm_, "members": members.get(tm_["id"], [])} for tm_ in teams]
 
 
 def list_stakeholders(ctx: Ctx, event_id: UUID, include_history: bool = False) -> list[dict]:
     ev = event(ctx, event_id)
-    s, u = t("test_stakeholders"), t("users")
-    q = select(s, u.c.display_name, u.c.email, u.c.department, u.c.designation, u.c.is_external).join(u, u.c.id == s.c.user_id) \
-        .where(s.c.event_id == event_id)
+    s, u, tt = t("test_stakeholders"), t("users"), t("teams")
+    q = select(s, u.c.display_name, u.c.email, u.c.department, u.c.designation, u.c.is_external, tt.c.name.label("team_name")) \
+        .join(u, u.c.id == s.c.user_id).outerjoin(tt, tt.c.id == s.c.team_id).where(s.c.event_id == event_id)
     if not include_history:
         q = q.where(s.c.is_active)
     out = [dict(r) for r in ctx.conn.execute(q.order_by(s.c.assigned_at)).mappings()]

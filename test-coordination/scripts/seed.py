@@ -86,6 +86,15 @@ def seed_tenant(conn, code: str, name: str) -> dict:
         conn.execute(text("INSERT INTO team_members (tenant_id, team_id, user_id) VALUES (:t,:tm,:u)"),
                      {"t": tid, "tm": team, "u": ids[m]})
     ids["team_db"] = team
+    for name, lead, members in (("Infrastructure and Network", "anita.infra", ("anita.infra", "kiran.net")),
+                                ("Core Banking Application Support", "deepa.app", ("deepa.app", "vikram.owner")),
+                                ("Business Validation", "farah.biz", ("farah.biz", "rohan.risk"))):
+        tm_id = uuid.uuid4()
+        conn.execute(text("INSERT INTO teams (id, tenant_id, name, lead_user_id) VALUES (:i,:t,:n,:l)"),
+                     {"i": tm_id, "t": tid, "n": name, "l": ids[lead]})
+        for m in members:
+            conn.execute(text("INSERT INTO team_members (tenant_id, team_id, user_id) VALUES (:t,:tm,:u)"),
+                         {"t": tid, "tm": tm_id, "u": ids[m]})
     svc = uuid.uuid4()
     conn.execute(text("INSERT INTO business_services (id, tenant_id, code, name, criticality) VALUES (:i,:t,'CBS','Core Banking','Critical')"),
                  {"i": svc, "t": tid})
