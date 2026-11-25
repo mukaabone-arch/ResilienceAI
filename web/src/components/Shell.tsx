@@ -48,6 +48,7 @@ function Shell({ children }: { children: ReactNode }) {
     { href: "/workspace", label: "My work", count: due },
     { href: "/tests", label: "Tests" },
     { href: "/calendar", label: "Calendar" },
+    { href: "/reports", label: "Reports" },
     ...(isPortfolio ? [{ href: "/command", label: "Command centre" }] : []),
   ];
   return (

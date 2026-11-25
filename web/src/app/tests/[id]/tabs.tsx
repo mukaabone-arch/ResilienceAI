@@ -482,7 +482,9 @@ export function ClosureTab(ctx: Ctx) {
             </ul>
           </Panel>
         )}
-        <Panel title={final ? "Closure report" : "Closure report (draft)"} meta={final ? `Frozen ${fmtDateTime(rep.generated_at)}` : "Updates as records change"}>
+        <Panel title={final ? "Closure report" : "Closure report (draft)"} meta={final ? `Frozen ${fmtDateTime(rep.generated_at)}` : "Updates as records change"}
+          action={<button className="btn" onClick={() => run(() => downloadFile(`/test-events/${ev.id}/closure-report.pdf`, `${ev.event_code}.pdf`))}>
+            {final ? "Download PDF" : "Download draft PDF"}</button>}>
           <dl className="facts" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 14, margin: 0 }}>
             <div><dt className="muted small">Outcome</dt><dd style={{ margin: 0, fontWeight: 650 }}>{rep.event.outcome ?? "Not recorded"}</dd></div>
             <div><dt className="muted small">Actual window</dt><dd style={{ margin: 0 }}>{fmtDateTime(rep.event.actual_start_at, ev.timezone)} to {fmtDateTime(rep.event.actual_end_at, ev.timezone)}</dd></div>

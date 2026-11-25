@@ -11,6 +11,7 @@ Next.js (App Router, TypeScript) frontend for the test coordination service in `
 | Calendar: financial-year (April to March) or calendar-year, month and week views, with clash markers and blackout periods | `/calendar` | Screen 02 |
 | New test: register one test or a recurring series (weekly to yearly) from a template, with every date clash-checked before saving | `/tests/new` | Screens 02/03, RA-015 |
 | Test workspace: overview, activities and dependency map, readiness and go, people, timeline, evidence register (upload, download, verify, review), findings and closure | `/tests/[id]` | Screens 04, 05, 07, 08, 09, 10 |
+| Reports: closure report PDFs and the programme status Excel workbook | `/reports` | Screen 10 |
 | Command centre: exceptions, upcoming tests, acknowledgements, workload | `/command` | Screen 01 |
 
 `npm run lint` checks React's hook rules. Every action goes through the API, so the backend's rules apply: role permissions, the readiness gate, segregation of duties and the audit record.

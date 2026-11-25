@@ -10,7 +10,7 @@ from fastapi.responses import Response
 
 from .. import schemas as sc
 from ..security import Ctx, get_ctx
-from ..services import audit, calendar, events, evidence, idempotency, people, series, views, work
+from ..services import audit, calendar, events, evidence, idempotency, people, reports, series, views, work
 
 router = APIRouter()
 D = Depends(get_ctx)
@@ -192,6 +192,32 @@ def close(event_id: UUID, data: sc.CloseIn = sc.CloseIn(), ctx: Ctx = D):
 @router.get("/test-events/{event_id}/closure-report", tags=["closure"])
 def closure_report(event_id: UUID, ctx: Ctx = D):
     return events.closure_report(ctx, event_id)
+
+
+def _file(data: bytes, name: str, media: str) -> Response:
+    from urllib.parse import quote
+    return Response(content=data, media_type=media, headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/test-events/{event_id}/closure-report.pdf", tags=["reports"], summary="Closure report as PDF (draft until closed)")
+def closure_report_pdf(event_id: UUID, ctx: Ctx = D):
+    data, name = reports.closure_pdf(ctx, event_id)
+    return _file(data, name, "application/pdf")
+
+
+@router.get("/reports/programme-status.xlsx", tags=["reports"], summary="Programme status workbook for management packs")
+def programme_status_xlsx(programme_id: Optional[UUID] = None, tz: str = "Asia/Kolkata", ctx: Ctx = D):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    from ..errors import Unprocessable
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        raise Unprocessable(f"Unknown time zone '{tz}'") from e
+    data, name = reports.programme_xlsx(ctx, programme_id, tz)
+    return _file(data, name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @router.get("/test-events/{event_id}/timeline", tags=["live"])

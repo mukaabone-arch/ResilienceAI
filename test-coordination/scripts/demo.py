@@ -9,6 +9,7 @@ something to show:
   - Card Switch DR Rehearsal        Planned
   - Treasury DB Restore Test        Draft
   - Branch Network Cutover          Cancelled
+  - Net Banking DR Drill            Closed three weeks ago, with sign-offs (for reports)
   - ATM Network Failover            Draft, overlaps the Card Switch rehearsal (same test manager)
 plus a year-end change freeze (blackout period).
 """
@@ -189,6 +190,45 @@ def main() -> None:
     br = new_event("Branch Network Cutover", "Infrastructure", "Low", NOW + timedelta(days=12), hours=2, template=False)
     api("arjun.pm", "POST", f"/test-events/{br['id']}/transitions",
         {"action": "cancel", "reason": "Superseded by the SD-WAN migration programme"})
+
+    # 6b. A finished drill, closed with sign-offs, so reports have something final -------
+    nb = new_event("Net Banking DR Drill", "Application", "High", NOW - timedelta(days=21, hours=-14), hours=4, template=False)
+    nid = nb["id"]
+    stn = mobilise(nb, {"deepa.app": "Application lead", "rahul.dba": "Database recovery", "farah.biz": "Business validation"})
+    for sub in stn:
+        api(sub, "POST", f"/test-stakeholders/{stn[sub]['id']}/respond", {"accept": True})
+    api("meera.tm", "POST", f"/test-events/{nid}/transitions", {"action": "begin_readiness"})
+    nb_acts = {}
+    for code, title, sub in (("NB-01", "Fail over web and API tiers", "deepa.app"), ("NB-02", "Recover customer database", "rahul.dba"),
+                             ("NB-03", "Business journey validation", "farah.biz")):
+        nb_acts[code] = api("meera.tm", "POST", f"/test-events/{nid}/activities", {"activity_code": code, "title": title,
+                                                                                 "stakeholder_id": stn[sub]["id"]})
+    it = api("meera.tm", "POST", f"/test-events/{nid}/readiness-items", {"title": "Change request approved"})
+    api("meera.tm", "PATCH", f"/test-readiness-items/{it['id']}", {"status": "Ready"})
+    api("meera.tm", "POST", f"/test-events/{nid}/transitions", {"action": "mark_ready"})
+    api("arjun.pm", "POST", f"/test-events/{nid}/approvals", {"approval_type": "Go/No-go", "decision": "Approved",
+                                                            "comments": "Bridge staffed; customers notified"})
+    api("meera.tm", "POST", f"/test-events/{nid}/start")
+    for code, sub in (("NB-01", "deepa.app"), ("NB-02", "rahul.dba"), ("NB-03", "farah.biz")):
+        move(sub, nb_acts[code]["id"], "In Progress", "Submitted")
+    m1 = api("rahul.dba", "POST", f"/test-events/{nid}/measurements", {"measurement_type": "RTO", "target_value": 2,
+             "target_unit": "Hours", "actual_value": 96, "unit": "Minutes"})
+    m2 = api("rahul.dba", "POST", f"/test-events/{nid}/measurements", {"measurement_type": "RPO", "target_value": 5,
+             "target_unit": "Minutes", "actual_value": 3, "unit": "Minutes"})
+    api("meera.tm", "POST", f"/test-events/{nid}/transitions", {"action": "complete"})
+    for m in (m1, m2):
+        api("rohan.risk", "POST", f"/test-measurements/{m['id']}/validate")
+    f = api("deepa.app", "POST", f"/test-events/{nid}/issues", {"title": "Login page cached old DNS for 6 minutes",
+            "severity": "Medium", "issue_type": "Finding"})
+    api("meera.tm", "POST", f"/test-issues/{f['id']}/remediation-actions", {"title": "Lower DNS TTL to 60 seconds",
+        "owner_user_id": u["kiran.net"], "due_at": (NOW + timedelta(days=30)).isoformat()})
+    nbv = api("meera.tm", "GET", f"/test-events/{nid}")
+    api("meera.tm", "PUT", f"/test-events/{nid}/outcome", {"outcome": "Successful", "expected_version": nbv["version"],
+        "summary": "Recovered in 96 minutes against a 2-hour RTO; data loss 3 minutes against a 5-minute RPO."})
+    api("farah.biz", "POST", f"/test-events/{nid}/approvals", {"approval_type": "Business", "decision": "Approved"})
+    api("rohan.risk", "POST", f"/test-events/{nid}/approvals", {"approval_type": "RiskReview", "decision": "Approved"})
+    api("arjun.pm", "POST", f"/test-events/{nid}/approvals", {"approval_type": "Closure", "decision": "Approved"})
+    api("meera.tm", "POST", f"/test-events/{nid}/close")
 
     # 7. A clash and a blackout, so the calendar has conflicts to show ------------
     new_event("ATM Network Failover", "Infrastructure", "High", NOW + timedelta(days=24, hours=3), hours=4, template=False)
