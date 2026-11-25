@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { api, useApi } from "@/lib/api";
 import { roleName } from "@/lib/format";
+import { MeContext } from "@/lib/me";
 import { getSession, Session, setSession } from "@/lib/session";
 
 export function BrandMark({ className = "brand-mark" }: { className?: string }) {
@@ -74,7 +75,10 @@ function Shell({ children }: { children: ReactNode }) {
           <button type="button" onClick={() => setSession(null)}>Switch person</button>
         </div>
       </aside>
-      <main className="main">{children}</main>
+      <main className="main">
+        {/* Pages render only once the person is known, and all read the same identity. */}
+        {me ? <MeContext.Provider value={me}>{children}</MeContext.Provider> : <p className="muted small">Loading…</p>}
+      </main>
     </div>
   );
 }

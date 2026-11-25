@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ErrorNotice, Loading, Panel } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
+import { useMe } from "@/lib/me";
 import { fmtDateTime, isoToZonedInput, TIMEZONES, zonedToIso } from "@/lib/format";
 
 const CATEGORIES = ["Infrastructure", "Application", "Database", "Cyber", "Business"];
@@ -12,7 +13,7 @@ const CRITICALITY = ["Critical", "High", "Medium", "Low"];
 
 export default function NewTest() {
   const router = useRouter();
-  const { data: me } = useApi<any>("/me");
+  const { data: me } = useMe() as { data: any };
   const { data: programmes } = useApi<any[]>("/test-programmes");
   const { data: templates } = useApi<any[]>("/test-templates");
   const { data: users } = useApi<any[]>("/users");

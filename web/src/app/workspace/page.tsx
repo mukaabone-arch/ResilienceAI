@@ -4,10 +4,11 @@ import Link from "next/link";
 import { ActivityActions } from "@/components/ActivityActions";
 import { ErrorNotice, Loading, Panel, Pill, useAction, useDialog } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
+import { useMe } from "@/lib/me";
 import { fmtDateTime, relative } from "@/lib/format";
 
 export default function Workspace() {
-  const { data: me } = useApi<any>("/me");
+  const { data: me } = useMe() as { data: any };
   const { data: ws, error, reload } = useApi<any>("/me/workspace");
   const { run, feedback } = useAction(reload);
   const { ask, node } = useDialog();

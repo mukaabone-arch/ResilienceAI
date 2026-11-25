@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ErrorNotice, Loading, Pill } from "@/components/ui";
 import { useApi } from "@/lib/api";
+import { useMe } from "@/lib/me";
 import { fmtDateTime, relative, tzLabel } from "@/lib/format";
 
 const FILTERS = [
@@ -21,7 +22,7 @@ export default function Tests() {
   const [filter, setFilter] = useState("");
   const [q, setQ] = useState("");
   const { data, error } = useApi<any[]>(`/test-events${q ? `?q=${encodeURIComponent(q)}` : ""}`);
-  const { data: me } = useApi<any>("/me");
+  const { data: me } = useMe() as { data: any };
   const canCreate = me?.roles?.some((r: string) => ["DRProgrammeManager", "TestManager"].includes(r));
 
   const rows = (data ?? []).filter((e) => !filter || (filter === "active" ? ACTIVE.includes(e.lifecycle_status) : e.lifecycle_status === filter));

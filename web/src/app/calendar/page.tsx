@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ErrorNotice, Loading, Panel } from "@/components/ui";
 import { useApi } from "@/lib/api";
+import { useMe } from "@/lib/me";
 import { browserTz, fmtDateTime, fmtTime, tzLabel } from "@/lib/format";
 
 type View = "year" | "month" | "week";
@@ -51,7 +52,7 @@ export default function CalendarPage() {
   const [category, setCategory] = useState("");
   const [criticality, setCriticality] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
-  const { data: me } = useApi<any>("/me");
+  const { data: me } = useMe() as { data: any };
   const [from, to] = windowFor(view, anchor);
   const qs = new URLSearchParams({ start: from.toISOString(), end: to.toISOString() });
   if (category) qs.set("category", category);
