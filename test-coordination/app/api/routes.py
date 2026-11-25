@@ -1,0 +1,317 @@
+"""REST API (Appendix A, extended with the endpoints the ten screens need)."""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Header, Query
+
+from .. import schemas as sc
+from ..security import Ctx, get_ctx
+from ..services import audit, events, idempotency, people, views, work
+
+router = APIRouter()
+D = Depends(get_ctx)
+
+
+def body(m) -> dict:
+    return m.model_dump(exclude_unset=True)
+
+
+# ---- Me / portfolio ----------------------------------------------------------
+@router.get("/me", tags=["me"])
+def me(ctx: Ctx = D):
+    return {"user_id": ctx.me.user_id, "tenant_id": ctx.me.tenant_id, "display_name": ctx.me.display_name,
+            "roles": sorted(ctx.me.roles), "is_external": ctx.me.is_external}
+
+
+@router.get("/users", tags=["directory"], summary="People in this tenant (for assignment pickers)")
+def users(ctx: Ctx = D):
+    from sqlalchemy import select
+
+    from ..db import t
+    if ctx.me.is_external:
+        return []
+    u = t("users")
+    return [dict(r) for r in ctx.conn.execute(
+        select(u.c.id, u.c.display_name, u.c.department, u.c.roles, u.c.is_external)
+        .where(u.c.is_active).order_by(u.c.display_name)).mappings()]
+
+
+@router.get("/test-programmes", tags=["programmes"])
+def list_programmes(ctx: Ctx = D):
+    from sqlalchemy import select
+
+    from ..db import t
+    p = t("test_programmes")
+    return [dict(r) for r in ctx.conn.execute(select(p).order_by(p.c.start_date.desc())).mappings()]
+
+
+@router.get("/me/workspace", tags=["me"], summary="Screen 06 — My Workspace")
+def my_workspace(ctx: Ctx = D):
+    return views.my_workspace(ctx)
+
+
+@router.get("/portfolio/summary", tags=["portfolio"], summary="Screen 01 — Enterprise Command Centre")
+def portfolio(programme_id: Optional[UUID] = None, horizon_days: int = Query(30, ge=1, le=365), ctx: Ctx = D):
+    return views.portfolio(ctx, programme_id, horizon_days)
+
+
+@router.get("/audit/verify", tags=["governance"], summary="Verify the tenant audit hash chain")
+def verify_audit(ctx: Ctx = D):
+    from ..authz import require_role
+    from ..domain.enums import Role
+    require_role(ctx, Role.AUDITOR, Role.RISK, Role.ADMIN)
+    return audit.verify_tenant_chain(ctx)
+
+
+# ---- Programmes & templates --------------------------------------------------
+@router.post("/test-programmes", status_code=201, tags=["programmes"])
+def create_programme(data: sc.ProgrammeIn, ctx: Ctx = D):
+    return events.create_programme(ctx, body(data))
+
+
+@router.get("/test-programmes/{programme_id}", tags=["programmes"])
+def get_programme(programme_id: UUID, ctx: Ctx = D):
+    return events.get_programme(ctx, programme_id)
+
+
+@router.post("/test-templates", status_code=201, tags=["templates"])
+def create_template(data: sc.TemplateIn, ctx: Ctx = D):
+    return events.create_template(ctx, body(data))
+
+
+# ---- Events ------------------------------------------------------------------
+@router.post("/test-events", status_code=201, tags=["events"], summary="Register a test")
+def create_event(data: sc.EventIn, ctx: Ctx = D, idempotency_key: Optional[str] = Header(default=None)):
+    return idempotency.run(ctx, idempotency_key, "create_event", data.model_dump(),
+                           lambda: events.create_event(ctx, body(data)))
+
+
+@router.get("/test-events", tags=["events"], summary="Screens 02/03 — calendar and register")
+def list_events(programme_id: Optional[UUID] = None, status: Optional[str] = None, category: Optional[str] = None,
+                criticality: Optional[str] = None, start_from: Optional[datetime] = None, start_to: Optional[datetime] = None,
+                q: Optional[str] = None, limit: int = Query(200, le=1000), offset: int = 0, ctx: Ctx = D):
+    return events.list_events(ctx, programme_id=programme_id, status=status, category=category, criticality=criticality,
+                              start_from=start_from, start_to=start_to, q=q, limit=limit, offset=offset)
+
+
+@router.get("/test-events/{event_id}", tags=["events"], summary="Screen 04 — overview")
+def get_event(event_id: UUID, ctx: Ctx = D):
+    return events.get_event_overview(ctx, event_id)
+
+
+@router.patch("/test-events/{event_id}", tags=["events"], summary="Update details or reschedule (versioned)")
+def patch_event(event_id: UUID, data: sc.EventPatch, ctx: Ctx = D):
+    return events.update_event(ctx, event_id, body(data))
+
+
+@router.get("/test-events/{event_id}/conflicts", tags=["events"])
+def conflicts(event_id: UUID, ctx: Ctx = D):
+    from ..services.common import event as load
+    ev = load(ctx, event_id)
+    return events.schedule_conflicts(ctx, ev["planned_start_at"], ev["planned_end_at"], exclude_event=event_id,
+                                     manager=ev["test_manager_user_id"])
+
+
+@router.post("/test-events/{event_id}/scope", status_code=201, tags=["events"])
+def add_scope(event_id: UUID, data: sc.ScopeIn, ctx: Ctx = D):
+    return events.add_scope_item(ctx, event_id, body(data))
+
+
+@router.post("/test-events/{event_id}/transitions", tags=["lifecycle"], summary="Apply a lifecycle action")
+def transition(event_id: UUID, data: sc.TransitionIn, ctx: Ctx = D):
+    return events.transition(ctx, event_id, data.action, reason=data.reason, expected_version=data.expected_version)
+
+
+@router.post("/test-events/{event_id}/start", tags=["lifecycle"], summary="Activate live coordination")
+def start(event_id: UUID, data: sc.CloseIn = sc.CloseIn(), ctx: Ctx = D):
+    return events.transition(ctx, event_id, "start", expected_version=data.expected_version)
+
+
+@router.put("/test-events/{event_id}/outcome", tags=["closure"])
+def set_outcome(event_id: UUID, data: sc.OutcomeIn, ctx: Ctx = D):
+    return events.set_outcome(ctx, event_id, data.outcome, data.summary, data.expected_version)
+
+
+@router.post("/test-events/{event_id}/close", tags=["closure"], summary="Request formal closure")
+def close(event_id: UUID, data: sc.CloseIn = sc.CloseIn(), ctx: Ctx = D):
+    return events.transition(ctx, event_id, "close", expected_version=data.expected_version)
+
+
+@router.get("/test-events/{event_id}/closure-report", tags=["closure"])
+def closure_report(event_id: UUID, ctx: Ctx = D):
+    return events.closure_report(ctx, event_id)
+
+
+@router.get("/test-events/{event_id}/timeline", tags=["live"])
+def timeline(event_id: UUID, ctx: Ctx = D):
+    return views.timeline(ctx, event_id)
+
+
+@router.get("/test-events/{event_id}/communications", tags=["communications"])
+def communications(event_id: UUID, ctx: Ctx = D):
+    return views.communications(ctx, event_id)
+
+
+# ---- Stakeholders ------------------------------------------------------------
+@router.post("/test-events/{event_id}/stakeholders", status_code=201, tags=["stakeholders"])
+def add_stakeholders(event_id: UUID, data: sc.StakeholderIn, ctx: Ctx = D):
+    return people.add_stakeholders(ctx, event_id, body(data))
+
+
+@router.get("/test-events/{event_id}/stakeholders", tags=["stakeholders"])
+def list_stakeholders(event_id: UUID, include_history: bool = False, ctx: Ctx = D):
+    return people.list_stakeholders(ctx, event_id, include_history)
+
+
+@router.post("/test-stakeholders/{stakeholder_id}/respond", tags=["stakeholders"])
+def respond(stakeholder_id: UUID, data: sc.RespondIn, ctx: Ctx = D):
+    return people.respond_to_assignment(ctx, stakeholder_id, data.accept, data.comment)
+
+
+@router.post("/test-stakeholders/{stakeholder_id}/replace", tags=["stakeholders"])
+def replace(stakeholder_id: UUID, data: sc.ReplaceIn, ctx: Ctx = D):
+    return people.replace_stakeholder(ctx, stakeholder_id, data.new_user_id, data.reason)
+
+
+@router.post("/acknowledgements/{ack_id}", tags=["communications"])
+def acknowledge(ack_id: UUID, data: sc.RespondIn, ctx: Ctx = D):
+    return people.acknowledge(ctx, ack_id, data.accept, data.comment)
+
+
+# ---- Activities & dependencies ----------------------------------------------
+@router.post("/test-events/{event_id}/activities", status_code=201, tags=["activities"])
+def create_activity(event_id: UUID, data: sc.ActivityIn, ctx: Ctx = D):
+    return work.create_activity(ctx, event_id, body(data))
+
+
+@router.get("/test-events/{event_id}/activities", tags=["activities"])
+def list_activities(event_id: UUID, ctx: Ctx = D):
+    return work.list_activities(ctx, event_id)
+
+
+@router.patch("/test-activities/{activity_id}", tags=["activities"], summary="Update status / reassign")
+def patch_activity(activity_id: UUID, data: sc.ActivityPatch, ctx: Ctx = D):
+    return work.update_activity(ctx, activity_id, body(data))
+
+
+@router.post("/test-activities/{activity_id}/review", tags=["activities"])
+def review_activity(activity_id: UUID, data: sc.ReviewIn, ctx: Ctx = D):
+    return work.review_activity(ctx, activity_id, data.accept, data.comment)
+
+
+@router.post("/test-activities/{activity_id}/evidence", status_code=201, tags=["evidence"])
+def activity_evidence(activity_id: UUID, data: sc.EvidenceIn, ctx: Ctx = D,
+                      idempotency_key: Optional[str] = Header(default=None)):
+    return idempotency.run(ctx, idempotency_key, f"evidence:{activity_id}", data.model_dump(),
+                           lambda: work.submit_evidence(ctx, activity_id=activity_id, data=body(data)))
+
+
+@router.post("/test-events/{event_id}/dependencies", status_code=201, tags=["dependencies"])
+def add_dependency(event_id: UUID, data: sc.DependencyIn, ctx: Ctx = D):
+    return work.add_dependency(ctx, event_id, body(data))
+
+
+@router.get("/test-events/{event_id}/dependencies", tags=["dependencies"])
+def dependency_map(event_id: UUID, ctx: Ctx = D):
+    return work.dependency_map(ctx, event_id)
+
+
+# ---- Readiness ---------------------------------------------------------------
+@router.post("/test-events/{event_id}/readiness-items", status_code=201, tags=["readiness"])
+def create_readiness_item(event_id: UUID, data: sc.ReadinessItemIn, ctx: Ctx = D):
+    return work.create_readiness_item(ctx, event_id, body(data))
+
+
+@router.patch("/test-readiness-items/{item_id}", tags=["readiness"])
+def patch_readiness(item_id: UUID, data: sc.ReadinessPatch, ctx: Ctx = D):
+    return work.update_readiness_item(ctx, item_id, body(data))
+
+
+@router.post("/test-events/{event_id}/readiness", tags=["readiness"], summary="Batch readiness update")
+def batch_readiness(event_id: UUID, data: sc.ReadinessUpdateIn, ctx: Ctx = D):
+    out = []
+    for u in data.updates:
+        p = sc.ReadinessPatch(**{k: v for k, v in u.items() if k != "id"})
+        item = work.update_readiness_item(ctx, UUID(str(u["id"])), body(p))
+        if item["event_id"] != event_id:
+            from ..errors import Unprocessable
+            raise Unprocessable("Readiness item belongs to another event")
+        out.append(item)
+    return out
+
+
+@router.get("/test-events/{event_id}/readiness", tags=["readiness"], summary="Screen 07 — readiness centre")
+def readiness(event_id: UUID, ctx: Ctx = D):
+    return work.readiness_summary(ctx, event_id)
+
+
+@router.post("/test-readiness-items/{item_id}/evidence", status_code=201, tags=["evidence"])
+def readiness_evidence(item_id: UUID, data: sc.EvidenceIn, ctx: Ctx = D):
+    return work.submit_evidence(ctx, readiness_item_id=item_id, data=body(data))
+
+
+@router.post("/test-evidence/{evidence_id}/review", tags=["evidence"])
+def review_evidence(evidence_id: UUID, data: sc.ReviewIn, ctx: Ctx = D):
+    return work.review_evidence(ctx, evidence_id, data.accept, data.comment)
+
+
+# ---- Approvals ---------------------------------------------------------------
+@router.post("/test-events/{event_id}/approvals", status_code=201, tags=["approvals"])
+def approve(event_id: UUID, data: sc.ApprovalIn, ctx: Ctx = D, idempotency_key: Optional[str] = Header(default=None)):
+    return idempotency.run(ctx, idempotency_key, f"approval:{event_id}", data.model_dump(),
+                           lambda: work.record_approval(ctx, event_id, body(data)))
+
+
+@router.post("/test-events/{event_id}/approval-requests", tags=["approvals"])
+def request_approval(event_id: UUID, data: sc.ApprovalRequestIn, ctx: Ctx = D):
+    return work.request_approval(ctx, event_id, data.approval_type, data.approver_user_ids)
+
+
+# ---- Live coordination -------------------------------------------------------
+@router.post("/test-events/{event_id}/announcements", status_code=201, tags=["live"])
+def announce(event_id: UUID, data: sc.AnnouncementIn, ctx: Ctx = D):
+    return work.announce(ctx, event_id, data.message)
+
+
+@router.post("/test-events/{event_id}/logs", status_code=201, tags=["live"])
+def add_log(event_id: UUID, data: sc.LogIn, ctx: Ctx = D):
+    return work.add_log_entry(ctx, event_id, body(data))
+
+
+@router.patch("/test-milestones/{milestone_id}", tags=["live"])
+def patch_milestone(milestone_id: UUID, data: sc.MilestonePatch, ctx: Ctx = D):
+    return work.update_milestone(ctx, milestone_id, body(data))
+
+
+# ---- Issues, remediation, measurements --------------------------------------
+@router.post("/test-events/{event_id}/issues", status_code=201, tags=["findings"])
+def create_issue(event_id: UUID, data: sc.IssueIn, ctx: Ctx = D):
+    return work.create_issue(ctx, event_id, body(data))
+
+
+@router.patch("/test-issues/{issue_id}", tags=["findings"])
+def patch_issue(issue_id: UUID, data: sc.IssuePatch, ctx: Ctx = D):
+    return work.update_issue(ctx, issue_id, body(data))
+
+
+@router.post("/test-issues/{issue_id}/remediation-actions", status_code=201, tags=["findings"])
+def create_remediation(issue_id: UUID, data: sc.RemediationIn, ctx: Ctx = D):
+    return work.create_remediation(ctx, issue_id, body(data))
+
+
+@router.patch("/test-remediation-actions/{action_id}", tags=["findings"])
+def patch_remediation(action_id: UUID, data: sc.RemediationPatch, ctx: Ctx = D):
+    return work.update_remediation(ctx, action_id, body(data))
+
+
+@router.post("/test-events/{event_id}/measurements", status_code=201, tags=["measurements"])
+def record_measurement(event_id: UUID, data: sc.MeasurementIn, ctx: Ctx = D):
+    return work.record_measurement(ctx, event_id, body(data))
+
+
+@router.post("/test-measurements/{measurement_id}/validate", tags=["measurements"])
+def validate_measurement(measurement_id: UUID, ctx: Ctx = D):
+    return work.validate_measurement(ctx, measurement_id)
