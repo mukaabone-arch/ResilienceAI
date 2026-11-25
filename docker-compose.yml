@@ -63,6 +63,8 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "scripts.worker"]
     environment: *api-env
+    healthcheck:
+      disable: true   # the image's check is the API's HTTP endpoint; the worker serves no HTTP
     depends_on:
       migrate: { condition: service_completed_successfully }
 
