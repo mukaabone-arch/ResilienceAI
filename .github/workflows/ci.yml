@@ -28,7 +28,7 @@ jobs:
     env:
       WORKER_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/resilience
       DATABASE_URL: postgresql+psycopg://app_user:app@localhost:5432/resilience
-      EVIDENCE_DIR: ${{ runner.temp }}/evidence
+      EVIDENCE_DIR: /tmp/evidence
     defaults:
       run:
         working-directory: test-coordination
