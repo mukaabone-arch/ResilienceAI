@@ -35,8 +35,42 @@ export function AppFrame({ children }: { children: ReactNode }) {
   return <Shell key={session.subject + session.tenantId}>{children}</Shell>;
 }
 
+/** Small-screen helpers that work for every page without per-table markup:
+ *  - label each table cell with its column name, so the phone layout can show rows as labelled cards;
+ *  - bring the current tab and lifecycle stage into view inside their own horizontal scroll. */
+function useSmallScreenHelpers() {
+  useEffect(() => {
+    const root = document.querySelector("main");
+    if (!root) return;
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      root.querySelectorAll<HTMLTableElement>("table.table").forEach((table) => {
+        const heads = [...table.querySelectorAll("thead th")].map((th) => th.textContent?.trim() ?? "");
+        table.querySelectorAll("tbody tr").forEach((tr) => {
+          [...tr.children].forEach((td, i) => {
+            const label = heads[i] ?? "";
+            if ((td as HTMLElement).dataset.label !== label) (td as HTMLElement).dataset.label = label;
+          });
+        });
+      });
+      root.querySelectorAll<HTMLElement>(".tabs [aria-current], .track [aria-current]").forEach((el) => {
+        const strip = el.parentElement;
+        if (!strip || strip.scrollWidth <= strip.clientWidth || el.dataset.shown === "1") return;
+        el.dataset.shown = "1";
+        strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.offsetWidth) / 2;
+      });
+    };
+    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(apply); });
+    observer.observe(root, { childList: true, subtree: true });
+    apply();
+    return () => { observer.disconnect(); if (frame) cancelAnimationFrame(frame); };
+  }, []);
+}
+
 function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
+  useSmallScreenHelpers();
   const { data: me, error } = useApi<any>("/me");
   const { data: ws } = useApi<any>("/me/workspace");
   useEffect(() => {
