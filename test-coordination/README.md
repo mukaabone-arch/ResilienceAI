@@ -48,6 +48,13 @@ docs/DESIGN_NOTES.md   spec review: gaps found and decisions taken
 - **Outbox:** communications and per-recipient/per-channel jobs are written in the business transaction. `notifications.dispatch_all_tenants()` delivers with exponential backoff and dead-letters after 5 attempts. Channels use `SimulatedAdapter` until the Graph and SMTP adapters are registered in `ADAPTERS`.
 - **Escalations:** `people.run_escalations(tenant_id)` handles acknowledgement-SLA breaches and overdue activities. It is idempotent, so it is safe to schedule (Temporal or cron).
 
+## Reports
+
+- `GET /test-events/{id}/closure-report.pdf`: closure report (A4 PDF). A closed test's report is rendered from the snapshot frozen at closure; before that it is marked DRAFT and lists what is outstanding.
+- `GET /reports/programme-status.xlsx?programme_id=&tz=`: programme workbook with Summary, Tests, Exceptions, Findings, Decisions and Schedule changes sheets. For portfolio roles only.
+
+Both are built with pure-Python libraries (`reportlab`, `openpyxl`) and every download is written to the audit trail.
+
 ## Evidence files
 
 Uploads go to `EVIDENCE_STORE` (`local` by default: files under `EVIDENCE_DIR`, which defaults to `test-coordination/evidence-store/`). The limit is `EVIDENCE_MAX_MB` (25). Each file's SHA-256 is computed in the browser and on the server, stored with the metadata, and re-checked on every download; a mismatch is refused and audited. Files are always served as attachments with `nosniff`. The built-in scanner only recognises the EICAR test file: connect the bank's scanner (ClamAV/ICAP) and an encrypted object store (e.g. S3 with SSE-KMS) for production through `app/services/storage.py`.
