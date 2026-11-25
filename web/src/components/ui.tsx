@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ApiError } from "@/lib/api";
 
 const STATE_CLASS: Record<string, string> = {
@@ -58,7 +59,9 @@ export function useDialog() {
     return new Promise<Record<string, string> | null>((resolve) => setState({ fields: [], ...opts, resolve }));
   }
 
-  const node = state ? <Dialog {...state} onDone={(v) => { state.resolve(v); setState(null); }} /> : null;
+  // Rendered on <body>: a dialog opened from inside a glass panel would otherwise be confined to that panel
+  // (backdrop-filter makes the panel the containing block for fixed-position children).
+  const node = state ? createPortal(<Dialog {...state} onDone={(v) => { state.resolve(v); setState(null); }} />, document.body) : null;
   return { ask, node };
 }
 

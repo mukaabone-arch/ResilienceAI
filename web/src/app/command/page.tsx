@@ -35,10 +35,10 @@ export default function Command() {
       </div>
 
       <nav className="today" aria-label="Programme summary">
-        <a href="#exceptions" className={exceptions.length ? "alert" : ""}><strong>{exceptions.length}</strong><span>Tests needing attention</span></a>
-        <a href="#upcoming"><strong>{p.upcoming.length}</strong><span>Starting in {horizon} days</span></a>
-        <a href="#acks" className={p.acknowledgements.overdue ? "alert" : ""}><strong>{p.acknowledgements.overdue}</strong><span>Acknowledgements overdue</span></a>
-        <a href="#load" className={p.overdue_activities ? "alert" : ""}><strong>{p.overdue_activities}</strong><span>Activities overdue</span></a>
+        <a href="#exceptions" className={exceptions.length ? "alert" : "zero"}><strong>{exceptions.length}</strong><span>Tests needing attention</span></a>
+        <a href="#upcoming" className={p.upcoming.length ? "" : "zero"}><strong>{p.upcoming.length}</strong><span>Starting in {horizon} days</span></a>
+        <a href="#acks" className={p.acknowledgements.overdue ? "alert" : "zero"}><strong>{p.acknowledgements.overdue}</strong><span>Acknowledgements overdue</span></a>
+        <a href="#load" className={p.overdue_activities ? "alert" : "zero"}><strong>{p.overdue_activities}</strong><span>Activities overdue</span></a>
       </nav>
 
       <div className="grid-2">
