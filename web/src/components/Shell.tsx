@@ -84,6 +84,11 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+function initials(name: string) {
+  const words = name.replace(/\(.*?\)/g, "").trim().split(/\s+/);
+  return ((words[0]?.[0] ?? "") + (words.length > 1 ? words[words.length - 1][0] : "")).toUpperCase();
+}
+
 function SignIn() {
   const [dir, setDir] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -124,9 +129,12 @@ function SignIn() {
           {people.map((u: any) => (
             <li key={u.idp_subject}>
               <button type="button" onClick={() => setSession({ tenantId: tenant, subject: u.idp_subject, displayName: u.display_name })}>
-                <span className="n">{u.display_name}</span>
-                <span className="r">{u.roles.map(roleName).join(", ")}</span>
-                <span className="r" style={{ display: "block" }}>{u.department}</span>
+                <span className={u.roles.includes("ExternalVendor") ? "av ext" : "av"} aria-hidden="true">{initials(u.display_name)}</span>
+                <span>
+                  <span className="n">{u.display_name}</span>
+                  <span className="r">{u.roles.map(roleName).join(", ")}</span>
+                  <span className="d">{u.department}</span>
+                </span>
               </button>
             </li>
           ))}
