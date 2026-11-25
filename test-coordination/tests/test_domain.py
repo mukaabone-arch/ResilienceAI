@@ -137,3 +137,32 @@ def test_audit_chain_detects_tampering():
     assert audit_chain.verify(rows) == (True, None)
     rows[1]["new_values"] = {"n": 999}
     assert audit_chain.verify(rows) == (False, 2)
+
+
+# ---- recurrence --------------------------------------------------------------
+from app.domain import recurrence as rc  # noqa: E402
+
+
+def test_recurrence_keeps_wall_clock_and_clamps_month_end():
+    s = datetime(2027, 1, 31, 20, 30, tzinfo=timezone.utc)          # 31 Jan 02:00 IST next day -> 1 Feb 02:00 IST
+    occ = rc.occurrences(s, s + timedelta(hours=4), "Asia/Kolkata", "monthly", 3)
+    assert [o[0].isoformat() for o in occ] == ["2027-01-31T20:30:00+00:00", "2027-02-28T20:30:00+00:00", "2027-03-31T20:30:00+00:00"]
+    assert all(e - s_ == timedelta(hours=4) for s_, e in occ)
+    q = rc.occurrences(datetime(2027, 4, 10, 4, 0, tzinfo=timezone.utc), datetime(2027, 4, 10, 8, 0, tzinfo=timezone.utc),
+                       "Asia/Kolkata", "quarterly", 4)
+    assert [o[0].month for o in q] == [4, 7, 10, 1]
+    # London: same 09:00 local across the March clock change
+    w = rc.occurrences(datetime(2027, 3, 22, 9, 0, tzinfo=timezone.utc), datetime(2027, 3, 22, 10, 0, tzinfo=timezone.utc),
+                       "Europe/London", "weekly", 2)
+    assert w[1][0].hour == 8          # 09:00 BST = 08:00 UTC
+    assert rc.occurrence_title("DR drill", q[0][0], "Asia/Kolkata", "quarterly") == "DR drill (Apr 2027)"
+
+
+def test_recurrence_validation():
+    s = datetime(2027, 1, 1, tzinfo=timezone.utc)
+    with pytest.raises(rc.RecurrenceError):
+        rc.occurrences(s, s + timedelta(days=8), "UTC", "weekly", 3)      # overlaps the next occurrence
+    with pytest.raises(rc.RecurrenceError):
+        rc.occurrences(s, s + timedelta(hours=1), "UTC", "monthly", 1)
+    with pytest.raises(rc.RecurrenceError):
+        rc.occurrences(s, s + timedelta(hours=1), "UTC", "daily", 3)

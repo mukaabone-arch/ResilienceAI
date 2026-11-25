@@ -150,7 +150,7 @@ def _validate_tz(tz: str) -> None:
 # ---------------------------------------------------------------------------
 # Events
 # ---------------------------------------------------------------------------
-def create_event(ctx: Ctx, data: dict) -> dict:
+def create_event(ctx: Ctx, data: dict, *, series: tuple | None = None) -> dict:
     authz.require_role(ctx, Role.PROGRAMME_MANAGER, Role.TEST_MANAGER)
     prog = row(ctx, "test_programmes", data["programme_id"])
     if prog["status"] == "Closed":
@@ -180,6 +180,7 @@ def create_event(ctx: Ctx, data: dict) -> dict:
                                        "planned_end_at", "test_manager_user_id")}
     ev = dict(ctx.conn.execute(insert(e).values(
         tenant_id=ctx.me.tenant_id, event_code=code, timezone=data.get("timezone", "UTC"),
+        series_id=series[0] if series else None, series_index=series[1] if series else None,
         owner_user_id=data.get("owner_user_id") or ctx.me.user_id, **fields).returning(e)).mappings().one())
     audit.record(ctx, "event.created", "Event", ev["id"], event_id=ev["id"], new=ev)
     if override:
@@ -260,7 +261,13 @@ def get_event_overview(ctx: Ctx, event_id: UUID) -> dict:
     upcoming = [dict(r) for r in ctx.conn.execute(select(ms).where(and_(ms.c.event_id == event_id, ms.c.status == "Pending"))
                                                   .order_by(ms.c.sequence_number).limit(5)).mappings()]
     ev.pop("closure_snapshot", None)
-    return {**ev, "allowed_actions": lc.allowed_actions(S(ev["lifecycle_status"])),
+    series = None
+    if ev.get("series_id"):
+        from .series import siblings
+        st = t("test_event_series")
+        meta = ctx.conn.execute(select(st.c.title, st.c.frequency).where(st.c.id == ev["series_id"])).mappings().first()
+        series = {**dict(meta), "occurrences": siblings(ctx, ev["series_id"])} if meta else None
+    return {**ev, "series": series, "allowed_actions": lc.allowed_actions(S(ev["lifecycle_status"])),
             "can_manage": authz.can_manage_event(ctx, ev),
             "readiness": gate.__dict__, "activity_counts": act, "open_blockers": blockers,
             "go_decision_valid": valid_approval(ctx, event_id, AT.GO_NO_GO) is not None,

@@ -72,6 +72,21 @@ export function OverviewTab(ctx: Ctx) {
             ))}
           </ul>
         </Panel>
+        {ev.series && (
+          <Panel title="Tests in this series" meta={ev.series.title} flush>
+            <ul className="rows">
+              {ev.series.occurrences.map((o: any) => (
+                <li key={o.id} style={{ padding: "8px 18px", alignItems: "center" }}>
+                  <span className="grow small">
+                    {o.id === ev.id ? <strong>{fmtDateTime(o.planned_start_at, ev.timezone)} (this test)</strong>
+                      : <Link href={`/tests/${o.id}`}>{fmtDateTime(o.planned_start_at, ev.timezone)}</Link>}
+                  </span>
+                  <Pill value={o.lifecycle_status} />
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        )}
         {(ev.objectives || ev.description) && <Panel title="Objectives"><p className="small">{ev.objectives || ev.description}</p></Panel>}
       </div>
     </div>

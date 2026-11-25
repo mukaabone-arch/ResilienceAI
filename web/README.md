@@ -8,8 +8,8 @@ Next.js (App Router, TypeScript) frontend for the test coordination service in `
 |---|---|---|
 | My work: your activities, acknowledgements, reviews, upcoming tests | `/workspace` | Screen 06 |
 | Tests: programme register with stage filters and search | `/tests` | Screen 03 |
-| Calendar: year, month and week views with clash markers and blackout periods | `/calendar` | Screen 02 |
-| New test: register a test from a template, with a live clash check before saving | `/tests/new` | Screens 02/03 |
+| Calendar: financial-year (April to March) or calendar-year, month and week views, with clash markers and blackout periods | `/calendar` | Screen 02 |
+| New test: register one test or a recurring series (weekly to yearly) from a template, with every date clash-checked before saving | `/tests/new` | Screens 02/03, RA-015 |
 | Test workspace: overview, activities and dependency map, readiness and go, people, timeline, findings and closure | `/tests/[id]` | Screens 04, 05, 07, 08, 09, 10 |
 | Command centre: exceptions, upcoming tests, acknowledgements, workload | `/command` | Screen 01 |
 
@@ -38,4 +38,4 @@ Sign-in is the development "act as" screen. It lists the seeded people and only 
 
 ## Not yet built
 
-Financial-year (April to March) calendar view, recurring tests, the live control room's real-time push (pages refresh after each action today), direct evidence file upload, and OIDC sign-in.
+The live control room's real-time push (pages refresh after each action today), direct evidence file upload, and OIDC sign-in.

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ErrorNotice, Loading, Panel } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { useMe } from "@/lib/me";
@@ -25,7 +25,12 @@ const startOfWeek = (d: Date) => addDays(startOfDay(d), -((d.getDay() + 6) % 7))
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 
-function windowFor(view: View, anchor: Date): [Date, Date] {
+// Indian financial year: 1 April to 31 March, named after the year it ends (FY2027 = Apr 2026 to Mar 2027).
+const FY_START_MONTH = 3;
+const fyStartYear = (d: Date) => (d.getMonth() >= FY_START_MONTH ? d.getFullYear() : d.getFullYear() - 1);
+
+function windowFor(view: View, anchor: Date, fy = false): [Date, Date] {
+  if (view === "year" && fy) { const y = fyStartYear(anchor); return [new Date(y, FY_START_MONTH, 1), new Date(y + 1, FY_START_MONTH, 1)]; }
   if (view === "year") return [new Date(anchor.getFullYear(), 0, 1), new Date(anchor.getFullYear() + 1, 0, 1)];
   if (view === "week") { const s = startOfWeek(anchor); return [s, addDays(s, 7)]; }
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
@@ -52,8 +57,13 @@ export default function CalendarPage() {
   const [category, setCategory] = useState("");
   const [criticality, setCriticality] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
+  const [fy, setFyState] = useState(true);
+  useEffect(() => {
+    try { const v = window.localStorage.getItem("resilienceai.calendar.fy"); if (v !== null) setFyState(v === "1"); } catch { /* storage unavailable */ }
+  }, []);
+  const setFy = (v: boolean) => { setFyState(v); try { window.localStorage.setItem("resilienceai.calendar.fy", v ? "1" : "0"); } catch { /* ignore */ } };
   const { data: me } = useMe() as { data: any };
-  const [from, to] = windowFor(view, anchor);
+  const [from, to] = windowFor(view, anchor, fy);
   const qs = new URLSearchParams({ start: from.toISOString(), end: to.toISOString() });
   if (category) qs.set("category", category);
   if (criticality) qs.set("criticality", criticality);
@@ -73,7 +83,7 @@ export default function CalendarPage() {
   const canCreate = me?.roles?.some((r: string) => ["DRProgrammeManager", "TestManager"].includes(r));
   const today = startOfDay(new Date());
 
-  const title = view === "year" ? `${anchor.getFullYear()}`
+  const title = view === "year" ? (fy ? `FY${fyStartYear(anchor) + 1} (Apr ${fyStartYear(anchor)} to Mar ${fyStartYear(anchor) + 1})` : `${anchor.getFullYear()}`)
     : view === "month" ? `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`
     : `${from.getDate()} ${MONTHS[from.getMonth()].slice(0, 3)} to ${addDays(to, -1).getDate()} ${MONTHS[addDays(to, -1).getMonth()].slice(0, 3)} ${addDays(to, -1).getFullYear()}`;
 
@@ -104,6 +114,12 @@ export default function CalendarPage() {
             <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{v[0].toUpperCase() + v.slice(1)}</button>
           ))}
         </div>
+        {view === "year" && (
+          <div className="seg" role="group" aria-label="Year type">
+            <button type="button" aria-pressed={fy} onClick={() => setFy(true)}>Financial year</button>
+            <button type="button" aria-pressed={!fy} onClick={() => setFy(false)}>Calendar year</button>
+          </div>
+        )}
         <div className="btn-row" style={{ alignItems: "center" }}>
           <button className="btn" aria-label="Previous" onClick={() => setAnchor(shift(view, anchor, -1))}>‹</button>
           <button className="btn" onClick={() => setAnchor(startOfDay(new Date()))}>Today</button>
@@ -131,12 +147,13 @@ export default function CalendarPage() {
           <div>
             {view === "year" && (
               <div className="year">
-                {MONTHS.map((name, mi) => {
-                  const first = new Date(anchor.getFullYear(), mi, 1);
+                {Array.from({ length: 12 }, (_, k) => new Date(from.getFullYear(), from.getMonth() + k, 1)).map((first) => {
+                  const mi = first.getMonth();
+                  const name = `${MONTHS[mi]}${first.getFullYear() !== from.getFullYear() || (fy && mi === FY_START_MONTH) ? ` ${first.getFullYear()}` : ""}`;
                   const start = startOfWeek(first);
                   const days = Array.from({ length: 42 }, (_, i) => addDays(start, i));
                   const count = events.filter((e: any) => new Date(e.planned_start_at).getMonth() === mi
-                    && new Date(e.planned_start_at).getFullYear() === anchor.getFullYear()).length;
+                    && new Date(e.planned_start_at).getFullYear() === first.getFullYear()).length;
                   return (
                     <button key={name} type="button" className="mini" onClick={() => { setAnchor(first); setView("month"); }}
                       aria-label={`${name}: ${count} test${count === 1 ? "" : "s"}. Open month`}>

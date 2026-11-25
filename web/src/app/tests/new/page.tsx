@@ -10,6 +10,10 @@ import { fmtDateTime, isoToZonedInput, TIMEZONES, zonedToIso } from "@/lib/forma
 
 const CATEGORIES = ["Infrastructure", "Application", "Database", "Cyber", "Business"];
 const CRITICALITY = ["Critical", "High", "Medium", "Low"];
+const REPEAT = [
+  { value: "", label: "Does not repeat" }, { value: "weekly", label: "Weekly" }, { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" }, { value: "half_yearly", label: "Every 6 months" }, { value: "yearly", label: "Yearly" },
+];
 
 export default function NewTest() {
   const router = useRouter();
@@ -26,6 +30,11 @@ export default function NewTest() {
     objectives: "", blackout_override_reason: "",
   });
   const [svc, setSvc] = useState<string[]>([]);
+  const [repeat, setRepeat] = useState("");
+  const [count, setCount] = useState("4");
+  const [blackoutChoice, setBlackoutChoice] = useState<"skip" | "override">("skip");
+  const [series, setSeries] = useState<any>(null);
+  const [seriesError, setSeriesError] = useState<string | null>(null);
   const [endTouched, setEndTouched] = useState(false);
   const [conflicts, setConflicts] = useState<any>(null);
   const [error, setError] = useState<unknown>(null);
@@ -65,18 +74,44 @@ export default function NewTest() {
     return () => clearTimeout(h);
   }, [startIso, endIso, f.test_manager_user_id, svc.join(","), windowError]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const nCount = Math.max(0, Math.min(52, parseInt(count || "0", 10) || 0));
+  const seriesBody = () => ({
+    programme_id: f.programme_id, title: f.title.trim() || "Test", category: f.category, criticality: f.criticality,
+    timezone: f.timezone, planned_start_at: startIso, planned_end_at: endIso,
+    test_manager_user_id: f.test_manager_user_id || undefined, business_service_ids: svc, frequency: repeat, count: nCount,
+  });
+  useEffect(() => {
+    if (!repeat || !startIso || !endIso || windowError || nCount < 2 || !f.programme_id) { setSeries(null); setSeriesError(null); return; }
+    const h = setTimeout(() => api("POST", "/test-events/series/preview", seriesBody())
+      .then((r) => { setSeries(r); setSeriesError(null); })
+      .catch((e) => { setSeries(null); setSeriesError(e.message); }), 400);
+    return () => clearTimeout(h);
+  }, [repeat, nCount, startIso, endIso, f.test_manager_user_id, svc.join(","), f.timezone, f.programme_id, windowError]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const managers = useMemo(() => (users ?? []).filter((u) => u.roles.includes("TestManager") || u.roles.includes("DRProgrammeManager")), [users]);
   const isPM = me?.roles?.includes("DRProgrammeManager");
   const canCreate = me?.roles?.some((r: string) => ["DRProgrammeManager", "TestManager"].includes(r));
-  const inBlackout = conflicts?.blackouts?.length > 0;
-  const ready = f.programme_id && f.title.trim() && startIso && endIso && !windowError
-    && (!inBlackout || (isPM && f.blackout_override_reason.trim()));
+  const inBlackout = repeat ? (series?.in_blackout ?? 0) > 0 : conflicts?.blackouts?.length > 0;
+  const overriding = repeat ? inBlackout && blackoutChoice === "override" : inBlackout;
+  const seriesOk = !repeat || (series && nCount >= 2 && !(inBlackout && blackoutChoice === "skip" && series.in_blackout === series.occurrences.length));
+  const ready = f.programme_id && f.title.trim() && startIso && endIso && !windowError && seriesOk
+    && (!overriding || (isPM && f.blackout_override_reason.trim()));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!ready) return;
     setBusy(true); setError(null);
     try {
+      if (repeat) {
+        const out = await api("POST", "/test-events/series", {
+          ...seriesBody(), title: f.title.trim(), template_id: f.template_id || undefined,
+          owner_user_id: f.owner_user_id || undefined, objectives: f.objectives || undefined,
+          skip_blackout_occurrences: inBlackout && blackoutChoice === "skip",
+          blackout_override_reason: overriding ? f.blackout_override_reason : undefined,
+        }, { "Idempotency-Key": idem });
+        router.push(`/tests/${out.events[0].id}`);
+        return;
+      }
       const ev = await api("POST", "/test-events", {
         programme_id: f.programme_id, template_id: f.template_id || undefined, title: f.title.trim(),
         category: f.category, criticality: f.criticality, timezone: f.timezone,
@@ -161,6 +196,17 @@ export default function NewTest() {
                 {TIMEZONES.map((z) => <option key={z.value} value={z.value}>{z.label}</option>)}
               </select>
               <span className="hint">The times above are read in this zone. Everyone sees them converted to their own.</span></div>
+            <div className="form-row">
+              <div className="field"><label htmlFor="rep">Repeat</label>
+                <select id="rep" className="select" value={repeat} onChange={(e) => setRepeat(e.target.value)}>
+                  {REPEAT.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select></div>
+              {repeat && (
+                <div className="field"><label htmlFor="cnt">Number of tests</label>
+                  <input id="cnt" className="input" type="number" min={2} max={52} value={count} onChange={(e) => setCount(e.target.value)} />
+                  <span className="hint">Each one is a separate test with its own people and readiness, linked as a series.</span></div>
+              )}
+            </div>
             {windowError && <p className="small overdue">{windowError}</p>}
           </Panel>
 
@@ -181,8 +227,45 @@ export default function NewTest() {
         </div>
 
         <div className="stack" style={{ position: "sticky", top: 20 }}>
-          <Panel title="Schedule check">
-            {!conflicts ? <p className="small muted">Pick a start and end to check for clashes.</p> : (
+          <Panel title="Schedule check" meta={repeat && series ? `${series.occurrences.length} tests, ${series.label}` : undefined}>
+            {repeat ? (
+              !series ? <p className="small muted">{seriesError ?? "Pick a start, an end and the number of tests to see every date."}</p> : (
+                <>
+                  <ul className="rows occ">
+                    {series.occurrences.map((o: any) => {
+                      const clash = o.conflicts.shared_service_overlaps.length + o.conflicts.test_manager_overlaps.length;
+                      const skipped = o.in_blackout && blackoutChoice === "skip";
+                      return (
+                        <li key={o.index} className={skipped ? "skipped" : ""}>
+                          <span className="grow small"><strong>{fmtDateTime(o.planned_start_at, f.timezone)}</strong>
+                            <span className="muted"> to {fmtDateTime(o.planned_end_at, f.timezone)}</span></span>
+                          {o.in_blackout ? <span className="pill blocked">{skipped ? "Skipped: blackout" : "Blackout"}</span>
+                            : clash ? <span className="pill waiting" title={[...o.conflicts.shared_service_overlaps, ...o.conflicts.test_manager_overlaps].map((x: any) => x.event_code).join(", ")}>{clash} clash{clash > 1 ? "es" : ""}</span>
+                            : <span className="pill ready">Clear</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {inBlackout && (
+                    <fieldset className="field" style={{ border: 0, padding: 0, margin: "14px 0 0" }}>
+                      <legend className="small" style={{ fontWeight: 600, marginBottom: 6 }}>
+                        {series.in_blackout} of these fall{series.in_blackout === 1 ? "s" : ""} in a blackout period</legend>
+                      <label className="small" style={{ display: "flex", gap: 6 }}><input type="radio" checked={blackoutChoice === "skip"}
+                        onChange={() => setBlackoutChoice("skip")} /> Skip {series.in_blackout === 1 ? "it" : "them"}</label>
+                      <label className="small" style={{ display: "flex", gap: 6, opacity: isPM ? 1 : 0.55 }}><input type="radio" disabled={!isPM}
+                        checked={blackoutChoice === "override"} onChange={() => setBlackoutChoice("override")} />
+                        Schedule {series.in_blackout === 1 ? "it" : "them"} anyway{isPM ? "" : " (DR programme managers only)"}</label>
+                      {blackoutChoice === "override" && isPM && (
+                        <div className="field" style={{ marginTop: 8 }}><label htmlFor="ovr">Reason for scheduling inside the blackout</label>
+                          <textarea id="ovr" className="textarea" value={f.blackout_override_reason}
+                            onChange={(e) => set("blackout_override_reason", e.target.value)} /></div>
+                      )}
+                    </fieldset>
+                  )}
+                  {series.with_clashes > 0 && <p className="xs muted" style={{ marginTop: 8 }}>Clashes don&apos;t block registration; they are flagged on the calendar.</p>}
+                </>
+              )
+            ) : !conflicts ? <p className="small muted">Pick a start and end to check for clashes.</p> : (
               <>
                 {!inBlackout && !clashCount && <p className="small" style={{ color: "var(--ready)", fontWeight: 600 }}>No clashes in this window.</p>}
                 {inBlackout && (
@@ -191,7 +274,7 @@ export default function NewTest() {
                     <ul>{conflicts.blackouts.map((b: any) => <li key={b.id}>{b.name} ({fmtDateTime(b.starts_at)} to {fmtDateTime(b.ends_at)})</li>)}</ul>
                   </div>
                 )}
-                {inBlackout && (isPM ? (
+                {inBlackout && !repeat && (isPM ? (
                   <div className="field"><label htmlFor="ovr">Reason for scheduling inside the blackout</label>
                     <textarea id="ovr" className="textarea" value={f.blackout_override_reason}
                       onChange={(e) => set("blackout_override_reason", e.target.value)} />
@@ -208,12 +291,14 @@ export default function NewTest() {
             )}
           </Panel>
           <div className="btn-row">
-            <button type="submit" className="btn primary" disabled={!ready || busy}>{busy ? "Registering…" : "Register test"}</button>
+            <button type="submit" className="btn primary" disabled={!ready || busy}>
+              {busy ? "Registering…" : repeat && series ? `Register ${series.occurrences.length - (inBlackout && blackoutChoice === "skip" ? series.in_blackout : 0)} tests` : "Register test"}</button>
             <Link href="/calendar" className="btn">Cancel</Link>
           </div>
           {!ready && !busy && <p className="xs muted">
             {!f.title.trim() ? "Add a test name." : !startIso || !endIso ? "Add the start and end." : windowError ? windowError
-              : inBlackout && !isPM ? "Choose a window outside the blackout." : inBlackout ? "Give a reason for the blackout override." : ""}</p>}
+              : repeat && !series ? "Waiting for the series check." : !repeat && inBlackout && !isPM ? "Choose a window outside the blackout."
+              : overriding ? "Give a reason for the blackout override." : ""}</p>}
         </div>
       </form>
     </>
