@@ -431,11 +431,16 @@ def update_issue(ctx: Ctx, issue_id: UUID, data: dict) -> dict:
         raise Forbidden("Only the test manager can close an issue")
     i = t("test_issues")
     values = {k: data[k] for k in ("status", "owner_user_id", "due_at", "root_cause", "severity") if k in data}
+    if values.get("status") in ("Resolved", "Closed") and iss["issue_type"] == "Blocker" and not data.get("comment"):
+        raise Unprocessable("Say how the blocker was resolved")
     if not values:
         return iss
     new = dict(ctx.conn.execute(update(i).where(i.c.id == issue_id).values(**values).returning(i)).mappings().one())
     o, n = audit.diff(iss, new)
     audit.record(ctx, "issue.updated", "Issue", issue_id, event_id=ev["id"], old=o, new=n)
+    if "status" in n:
+        log(ctx, ev["id"], "Status", f"{iss['issue_type']} {iss['issue_code']} → {new['status']}"
+            + (f". {data['comment']}" if data.get("comment") else ""), activity_id=iss["activity_id"])
     return new
 
 

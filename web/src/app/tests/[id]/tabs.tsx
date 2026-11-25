@@ -159,9 +159,20 @@ export function ReadinessTab(ctx: Ctx) {
     const v = await ask({ title: `Update "${item.title}"`, confirm: "Save status", fields: [
       { name: "status", label: "Status", kind: "select", initial: item.status,
         options: ["Pending", "In Progress", "Ready", "Blocked", "Failed"].map((s) => ({ value: s, label: s })) },
+      ...(ev.can_manage ? [{ name: "owner_user_id", label: "Owner", kind: "select" as const, initial: item.owner_user_id ?? "",
+        hint: "The owner can update this condition themselves",
+        options: [{ value: "", label: "Test manager only" }, ...(users ?? []).filter((u) => !u.is_external).map((u) => ({ value: u.id, label: u.display_name }))] }] : []),
       { name: "comment", label: "Note for the timeline", kind: "textarea" },
     ] });
-    if (v) run(() => api("PATCH", `/test-readiness-items/${item.id}`, { status: v.status, comment: v.comment || undefined }), "Readiness updated");
+    if (v) run(() => api("PATCH", `/test-readiness-items/${item.id}`, {
+      status: v.status, comment: v.comment || undefined,
+      ...(ev.can_manage && v.owner_user_id !== (item.owner_user_id ?? "") && v.owner_user_id ? { owner_user_id: v.owner_user_id } : {}),
+    }), "Readiness updated");
+  }
+  async function resolve(b: any) {
+    const v = await ask({ title: `Resolve ${b.issue_code}`, confirm: "Mark resolved", description: b.title,
+      fields: [{ name: "comment", label: "How was it resolved?", kind: "textarea", required: true }] });
+    if (v) run(() => api("PATCH", `/test-issues/${b.id}`, { status: "Resolved", comment: v.comment }), `${b.issue_code} resolved`);
   }
   async function exception(item: any) {
     const v = await ask({ title: "Grant a readiness exception", confirm: "Grant exception", danger: true,
@@ -257,7 +268,9 @@ export function ReadinessTab(ctx: Ctx) {
         {rd.critical_blockers.length > 0 && (
           <Panel title="Open blockers" flush>
             <ul className="rows">{rd.critical_blockers.map((b: any) => (
-              <li key={b.id}><span className="code">{b.issue_code}</span><span className="grow small">{b.title}</span><Pill value="Blocked" /></li>
+              <li key={b.id}><span className="code">{b.issue_code}</span><span className="grow small">{b.title}</span>
+                {(ev.can_manage || b.owner_user_id === me.user_id)
+                  ? <button className="btn" onClick={() => resolve(b)}>Resolve</button> : <Pill value="Blocked" />}</li>
             ))}</ul>
           </Panel>
         )}

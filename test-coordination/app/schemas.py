@@ -185,6 +185,7 @@ class IssueIn(Model):
 
 class IssuePatch(Model):
     status: Optional[Literal["Open", "In Progress", "Resolved", "Closed"]] = None
+    comment: Optional[str] = None
     owner_user_id: Optional[UUID] = None
     due_at: Optional[AwareDatetime] = None
     root_cause: Optional[str] = None

@@ -110,8 +110,9 @@ def main() -> None:
              {"evidence_type": "ExternalRecord", "storage_reference": "servicenow://CHG0041234"})
     api("rohan.risk", "POST", f"/test-evidence/{ev['id']}/review", {"accept": True})
     api("meera.tm", "PATCH", f"/test-readiness-items/{rd['Database recovery ready']['id']}",
-        {"status": "Blocked", "comment": "Depends on DB-01"})
-    api("meera.tm", "PATCH", f"/test-readiness-items/{rd['Business validation team confirmed']['id']}", {"status": "In Progress"})
+        {"status": "Blocked", "comment": "Depends on DB-01", "owner_user_id": u["rahul.dba"]})
+    api("meera.tm", "PATCH", f"/test-readiness-items/{rd['Business validation team confirmed']['id']}",
+        {"status": "In Progress", "owner_user_id": u["farah.biz"]})
     api("rahul.dba", "POST", f"/test-events/{cb['id']}/issues", {
         "title": "Storage snapshot schedule not aligned to RPO", "severity": "High", "issue_type": "Blocker",
         "activity_id": acts["DB-01"]["id"], "owner_user_id": u["ext.vendor"]})
