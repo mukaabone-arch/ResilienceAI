@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, Query
 
 from .. import schemas as sc
 from ..security import Ctx, get_ctx
-from ..services import audit, calendar, events, idempotency, people, views, work
+from ..services import audit, calendar, events, idempotency, people, series, views, work
 
 router = APIRouter()
 D = Depends(get_ctx)
@@ -125,6 +125,16 @@ def create_template(data: sc.TemplateIn, ctx: Ctx = D):
 def create_event(data: sc.EventIn, ctx: Ctx = D, idempotency_key: Optional[str] = Header(default=None)):
     return idempotency.run(ctx, idempotency_key, "create_event", data.model_dump(),
                            lambda: events.create_event(ctx, body(data)))
+
+
+@router.post("/test-events/series/preview", tags=["events"], summary="Every occurrence of a recurring test, with its clashes")
+def preview_series(data: sc.SeriesIn, ctx: Ctx = D):
+    return series.preview(ctx, body(data))
+
+
+@router.post("/test-events/series", status_code=201, tags=["events"], summary="Create a recurring test series")
+def create_series(data: sc.SeriesIn, ctx: Ctx = D, idempotency_key: Optional[str] = Header(default=None)):
+    return idempotency.run(ctx, idempotency_key, "create_series", data.model_dump(), lambda: series.create(ctx, body(data)))
 
 
 @router.get("/test-events", tags=["events"], summary="Screens 02/03 — calendar and register")

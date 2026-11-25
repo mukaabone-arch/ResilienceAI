@@ -252,3 +252,9 @@ class BlackoutIn(Model):
     name: str = Field(max_length=200)
     starts_at: AwareDatetime
     ends_at: AwareDatetime
+
+
+class SeriesIn(EventIn):
+    frequency: Literal["weekly", "monthly", "quarterly", "half_yearly", "yearly"]
+    count: int = Field(ge=2, le=52)
+    skip_blackout_occurrences: bool = False

@@ -9,6 +9,7 @@ import { useMe } from "@/lib/me";
 import { fmtDateTime, isoToZonedInput, relative, tzLabel, zonedToIso } from "@/lib/format";
 import { ActivitiesTab, ClosureTab, OverviewTab, PeopleTab, ReadinessTab, TimelineTab } from "./tabs";
 
+const SERIES_LABEL: Record<string, string> = { weekly: "weekly", monthly: "monthly", quarterly: "quarterly", half_yearly: "every 6 months", yearly: "yearly" };
 const TRACK = ["Draft", "Planned", "Mobilising", "Readiness", "Ready", "Live", "Closure", "Closed"];
 const TABS = [
   { key: "overview", label: "Overview" },
@@ -139,6 +140,7 @@ function EventWorkspace() {
           <div><dt>Starts</dt><dd>{ev.actual_start_at ? `Started ${relative(ev.actual_start_at)}` : relative(ev.planned_start_at)}</dd></div>
           <div><dt>Criticality</dt><dd>{ev.criticality}</dd></div>
           <div><dt>Category</dt><dd>{ev.category}</dd></div>
+          {ev.series && <div><dt>Series</dt><dd>{ev.series_index} of {ev.series.occurrences.length}, {SERIES_LABEL[ev.series.frequency] ?? ev.series.frequency}</dd></div>}
           {ev.status_reason && <div><dt>Latest reason</dt><dd style={{ fontWeight: 500, maxWidth: "48ch" }}>{ev.status_reason}</dd></div>}
         </dl>
         <ol className="track" aria-label="Lifecycle">
