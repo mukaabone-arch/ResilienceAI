@@ -19,6 +19,12 @@ class Settings:
     evidence_store: str = os.getenv("EVIDENCE_STORE", "local")
     evidence_dir: str = os.getenv("EVIDENCE_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "evidence-store"))
     evidence_max_mb: int = int(os.getenv("EVIDENCE_MAX_MB", "25"))
+    # Assistant. "rules" composes everything from the records with no external service.
+    # "anthropic" lets Claude rewrite that text (names hidden, facts only, checked, with fallback).
+    ai_provider: str = os.getenv("AI_PROVIDER", "rules")
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    ai_model: str = os.getenv("AI_MODEL", "claude-sonnet-5-5")
+    ai_timeout_s: float = float(os.getenv("AI_TIMEOUT_S", "20"))
 
 
 settings = Settings()

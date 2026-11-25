@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { OversightLog } from "@/components/Assistant";
 import { ErrorNotice, Loading, Panel, Pill, useAction } from "@/components/ui";
 import { downloadFile, useApi } from "@/lib/api";
 import { TIMEZONES, fmtDateTime } from "@/lib/format";
@@ -58,6 +59,7 @@ export default function Reports() {
               </table>
             )}
           </Panel>
+          {hasRole(me, "EnterpriseProgrammeAdministrator", "DRProgrammeManager", "RiskCompliance", "Auditor") && <OversightLog />}
         </div>
         <div className="stack">
           <Panel title="Programme status" meta="Excel">

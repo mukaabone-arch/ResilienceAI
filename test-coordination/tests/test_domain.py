@@ -166,3 +166,40 @@ def test_recurrence_validation():
         rc.occurrences(s, s + timedelta(hours=1), "UTC", "monthly", 1)
     with pytest.raises(rc.RecurrenceError):
         rc.occurrences(s, s + timedelta(hours=1), "UTC", "daily", 3)
+
+
+# ---- slip forecast -----------------------------------------------------------
+from app.domain import forecast as fc  # noqa: E402
+
+
+def test_forecast_blocked_chain_slips():
+    start = NOW + timedelta(hours=36)
+    db = fc.Act("db", "DB-01", "Recovery point", "Blocked", due_at=NOW + timedelta(hours=6),
+                updated_at=NOW - timedelta(hours=40), owner="Rahul Das")
+    app_ = fc.Act("app", "APP-01", "App walkthrough", "Not Started", due_at=NOW + timedelta(hours=20),
+                  planned_start_at=NOW + timedelta(hours=12))
+    cond = fc.Cond("c1", "Database recovery ready", "Blocked", activity_id="db")
+    f = fc.project(NOW, start, "Readiness", [db, app_], [("db", "app", True)], [cond])
+    assert f.verdict == "likely_slip"                  # 40 h blocked -> +40 h, then APP-01's 8 h
+    assert f.projected_ready == NOW + timedelta(hours=48) and f.margin_hours == -12.0
+    assert f.drivers[0].ref == "APP-01" and "waiting on DB-01" in f.drivers[0].reason
+    assert any("blocked for 40.0 h" in d.reason for d in f.drivers)
+
+
+def test_forecast_on_track_and_not_applicable():
+    start = NOW + timedelta(days=6)
+    a = fc.Act("a", "INF-01", "Infra", "In Progress", due_at=NOW + timedelta(days=2))
+    c = fc.Cond("c", "Change approved", "Ready", evidence_pending=True)
+    f = fc.project(NOW, start, "Readiness", [a], [], [c])
+    assert f.verdict == "on_track" and f.margin_hours >= 24
+    assert fc.project(NOW, start, "Live", [a], [], [c]).applicable is False
+    done = fc.project(NOW, start, "Ready", [], [], [fc.Cond("x", "All good", "Ready")])
+    assert done.verdict == "ready"
+
+
+def test_forecast_overdue_rule_is_bounded():
+    start = NOW + timedelta(hours=30)
+    late = fc.Act("l", "NET-01", "Routing", "In Progress", due_at=NOW - timedelta(days=10))
+    f = fc.project(NOW, start, "Readiness", [late], [], [fc.Cond("c", "Net ready", "Pending", activity_id="l")])
+    assert f.projected_ready == NOW + timedelta(hours=72)          # capped at 3 days
+    assert f.verdict == "likely_slip" and f.margin_hours == -42.0
