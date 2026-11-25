@@ -125,11 +125,12 @@ export function useAction(onDone?: () => void) {
   const [error, setError] = useState<unknown>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  async function run(fn: () => Promise<unknown>, success?: string) {
+  // success can depend on the result, e.g. "Added 3 people from Database Engineering"
+  async function run<T>(fn: () => Promise<T>, success?: string | ((result: T) => string)) {
     setBusy(true); setError(null); setOk(null);
     try {
-      await fn();
-      if (success) setOk(success);
+      const result = await fn();
+      if (success) setOk(typeof success === "function" ? success(result) : success);
       onDone?.();
     } catch (e) {
       setError(e);

@@ -26,7 +26,7 @@ An existing database created before `scripts.migrate` existed needs `python -m s
 ## Tests
 
 ```bash
-pytest -q        # 55 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
+pytest -q        # 59 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
 ```
 
 `tests/test_journey.py::test_core_banking_journey` walks the spec §31 demo end to end: programme → template → event → plan approval → stakeholders and acknowledgements → blocked DB prerequisite → readiness gate refuses go → evidence reject/resubmit → readiness exception → go decision → live (announcements, pause/resume) → RTO/RPO capture → findings → closure checklist → sign-offs → frozen closure report → audit-chain verification. Other tests cover QA-04/05/07/13/14/15 and transaction rollback.

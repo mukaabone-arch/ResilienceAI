@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 import pytest
 from sqlalchemy import text
@@ -79,7 +80,7 @@ def test_core_banking_journey(journey, as_):
                           json={"user_id": str(ids[sub]), "event_role": role}).json()[0]
     team = tm.post(f"/test-events/{eid}/stakeholders", expect=201,
                    json={"team_id": str(ids["team_db"]), "event_role": "Database Recovery"}).json()
-    st.update({"sana.lead": team[0], "rahul.dba": team[1]})
+    st.update({next(k for k in ("sana.lead", "rahul.dba") if ids[k] == UUID(m["user_id"])): m for m in team})
     tm.post(f"/test-events/{eid}/stakeholders", expect=409, json={"user_id": str(ids["kiran.net"]), "event_role": "x"})
 
     # Assign activities to owners; reviewer for TV-01
