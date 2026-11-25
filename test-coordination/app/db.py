@@ -34,9 +34,9 @@ _metadata = MetaData()
 
 @lru_cache
 def tables() -> dict[str, Table]:
-    # Reflect with the privileged connection: RLS does not affect catalog reads,
-    # but app_user may lack visibility of some catalog details on locked-down installs.
-    _metadata.reflect(bind=worker_engine())
+    # Reflect with the application's own (restricted) login: catalog reads aren't affected by RLS,
+    # so the API never needs the schema owner's credentials.
+    _metadata.reflect(bind=engine())
     return dict(_metadata.tables)
 
 

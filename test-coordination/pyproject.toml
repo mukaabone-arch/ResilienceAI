@@ -8,3 +8,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 130
+
+[tool.ruff.lint]
+# Explicit, so a newer ruff release can't change what CI enforces.
+select = ["E4", "E7", "E9", "F"]

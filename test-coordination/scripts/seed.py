@@ -59,10 +59,8 @@ CORE_BANKING_TEMPLATE = {
 
 
 def apply_migrations(conn) -> None:
-    # Use the raw driver so '%' in PL/pgSQL format() strings is not treated as a bind placeholder.
-    raw = conn.connection.driver_connection
-    for f in sorted((ROOT / "migrations").glob("*.sql")):
-        raw.execute(f.read_text())
+    from scripts.migrate import apply
+    apply(conn, out=lambda *_: None)
 
 
 def reset(conn) -> None:

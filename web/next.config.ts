@@ -4,6 +4,8 @@ import type { NextConfig } from "next";
 const API_URL = process.env.API_URL ?? "http://localhost:8000";
 
 const config: NextConfig = {
+  // A self-contained server for the Docker image (.next/standalone).
+  output: "standalone",
   devIndicators: false,
   experimental: {
     // Evidence uploads (up to 25 MB) pass through the /api/v1 rewrite; Next buffers proxied
