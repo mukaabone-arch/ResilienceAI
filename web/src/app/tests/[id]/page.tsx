@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { ErrorNotice, Loading, Pill, useAction, useDialog } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
+import { useMe } from "@/lib/me";
 import { fmtDateTime, isoToZonedInput, relative, tzLabel, zonedToIso } from "@/lib/format";
 import { ActivitiesTab, ClosureTab, OverviewTab, PeopleTab, ReadinessTab, TimelineTab } from "./tabs";
 
@@ -51,7 +52,7 @@ function EventWorkspace() {
   const { id } = useParams<{ id: string }>();
   const tab = useSearchParams().get("tab") ?? "overview";
   const { data: ev, error, reload } = useApi<any>(`/test-events/${id}`);
-  const { data: me } = useApi<any>("/me");
+  const { data: me } = useMe() as { data: any };
   const { run, busy, feedback } = useAction(reload);
   const { ask, node } = useDialog();
 
