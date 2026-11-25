@@ -9,6 +9,8 @@ something to show:
   - Card Switch DR Rehearsal        Planned
   - Treasury DB Restore Test        Draft
   - Branch Network Cutover          Cancelled
+  - ATM Network Failover            Draft, overlaps the Card Switch rehearsal (same test manager)
+plus a year-end change freeze (blackout period).
 """
 from __future__ import annotations
 
@@ -174,6 +176,12 @@ def main() -> None:
     br = new_event("Branch Network Cutover", "Infrastructure", "Low", NOW + timedelta(days=12), hours=2, template=False)
     api("arjun.pm", "POST", f"/test-events/{br['id']}/transitions",
         {"action": "cancel", "reason": "Superseded by the SD-WAN migration programme"})
+
+    # 7. A clash and a blackout, so the calendar has conflicts to show ------------
+    new_event("ATM Network Failover", "Infrastructure", "High", NOW + timedelta(days=24, hours=3), hours=4, template=False)
+    api("arjun.pm", "POST", "/blackout-periods", {
+        "name": "Year-end change freeze", "starts_at": (NOW + timedelta(days=33)).isoformat(),
+        "ends_at": (NOW + timedelta(days=40)).isoformat()})
 
     print("Demo data loaded for tenant BANK", ids["tenant"])
 

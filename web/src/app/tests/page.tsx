@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ErrorNotice, Loading, Pill } from "@/components/ui";
@@ -20,6 +21,8 @@ export default function Tests() {
   const [filter, setFilter] = useState("");
   const [q, setQ] = useState("");
   const { data, error } = useApi<any[]>(`/test-events${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  const { data: me } = useApi<any>("/me");
+  const canCreate = me?.roles?.some((r: string) => ["DRProgrammeManager", "TestManager"].includes(r));
 
   const rows = (data ?? []).filter((e) => !filter || (filter === "active" ? ACTIVE.includes(e.lifecycle_status) : e.lifecycle_status === filter));
 
@@ -30,8 +33,11 @@ export default function Tests() {
           <h1>Tests</h1>
           <p>Every resilience test you can see in the programme, in schedule order.</p>
         </div>
-        <input className="input" style={{ width: 260 }} placeholder="Search by name or code" aria-label="Search tests"
-          value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="btn-row" style={{ alignItems: "center" }}>
+          <input className="input" style={{ width: 260 }} placeholder="Search by name or code" aria-label="Search tests"
+            value={q} onChange={(e) => setQ(e.target.value)} />
+          {canCreate && <Link className="btn primary" href="/tests/new">New test</Link>}
+        </div>
       </div>
       <div className="tabs" role="tablist">
         {FILTERS.map((f) => (

@@ -246,3 +246,9 @@ class CloseIn(Model):
     expected_version: Optional[int] = None
 
 
+
+
+class BlackoutIn(Model):
+    name: str = Field(max_length=200)
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime

@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { ErrorNotice, Loading, Pill, useAction, useDialog } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
-import { fmtDateTime, relative, tzLabel } from "@/lib/format";
+import { fmtDateTime, isoToZonedInput, relative, tzLabel, zonedToIso } from "@/lib/format";
 import { ActivitiesTab, ClosureTab, OverviewTab, PeopleTab, ReadinessTab, TimelineTab } from "./tabs";
 
 const TRACK = ["Draft", "Planned", "Mobilising", "Readiness", "Ready", "Live", "Closure", "Closed"];
@@ -83,6 +83,28 @@ function EventWorkspace() {
     run(() => api("POST", `/test-events/${id}/transitions`, { action, reason, expected_version: ev.version }), DONE[action] ?? "Updated");
   }
 
+  const canReschedule = ev.can_manage && ["Draft", "Planned", "Mobilising", "Readiness", "Ready"].includes(ev.lifecycle_status);
+  async function reschedule() {
+    const v = await ask({
+      title: "Reschedule this test", confirm: "Reschedule",
+      description: `Times are in the test's time zone (${tzLabel(ev.timezone)}). Everyone on the test is told about the change.`
+        + (ev.lifecycle_status === "Ready" ? " The go decision is cancelled and readiness has to be confirmed again." : ""),
+      fields: [
+        { name: "start", label: "New start", kind: "datetime", required: true, initial: isoToZonedInput(ev.planned_start_at, ev.timezone) },
+        { name: "end", label: "New end", kind: "datetime", required: true, initial: isoToZonedInput(ev.planned_end_at, ev.timezone) },
+        { name: "reason", label: "Reason", kind: "textarea", required: true },
+        ...(isPM ? [{ name: "override", label: "Blackout override reason", kind: "textarea" as const,
+          hint: "Only needed if the new window falls in a blackout period" }] : []),
+      ],
+    });
+    if (!v) return;
+    run(() => api("PATCH", `/test-events/${id}`, {
+      expected_version: ev.version, reschedule_reason: v.reason,
+      planned_start_at: zonedToIso(v.start, ev.timezone), planned_end_at: zonedToIso(v.end, ev.timezone),
+      blackout_override_reason: v.override || undefined,
+    }), "Rescheduled. Everyone on the test has been told.");
+  }
+
   const ctx = { ev, me, isPM, reloadEvent: reload };
   return (
     <>
@@ -98,6 +120,7 @@ function EventWorkspace() {
             <h1>{ev.title}</h1>
           </div>
           <div className="btn-row" style={{ alignItems: "flex-start" }}>
+            {canReschedule && <button className="btn quiet" disabled={busy} onClick={reschedule}>Reschedule</button>}
             {backward.map((a) => (
               <button key={a} className={`btn ${ACTIONS[a].danger ? "danger" : ""}`} disabled={busy} onClick={() => act(a)}>{ACTIONS[a].label}</button>
             ))}
