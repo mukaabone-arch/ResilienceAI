@@ -41,7 +41,7 @@ export function Loading({ what = "Loading" }: { what?: string }) {
   return <p className="muted small" aria-live="polite">{what}…</p>;
 }
 
-export type DialogField = { name: string; label: string; kind?: "text" | "textarea" | "select"; required?: boolean;
+export type DialogField = { name: string; label: string; kind?: "text" | "textarea" | "select" | "datetime"; required?: boolean;
   options?: { value: string; label: string }[]; hint?: string; initial?: string };
 
 /**
@@ -101,6 +101,7 @@ function Dialog({ title, description, confirm, danger, fields, onDone }: {
                   </select>
                 ) : (
                   <input id={`f-${f.name}`} className="input" value={vals[f.name]}
+                    type={f.kind === "datetime" ? "datetime-local" : "text"}
                     ref={(el) => { if (i === 0) first.current = el; }}
                     onChange={(e) => setVals({ ...vals, [f.name]: e.target.value })} />
                 )}

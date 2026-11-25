@@ -94,7 +94,7 @@ def create_template(ctx: Ctx, data: dict) -> dict:
 # Scheduling and conflicts (RA-016)
 # ---------------------------------------------------------------------------
 def schedule_conflicts(ctx: Ctx, start: datetime, end: datetime, *, exclude_event: UUID | None = None,
-                       manager: UUID | None = None) -> dict[str, list[dict]]:
+                       manager: UUID | None = None, service_ids: list[UUID] | None = None) -> dict[str, list[dict]]:
     b, e, sc = t("blackout_periods"), t("test_events"), t("test_scope_items")
     blackouts = [dict(r) for r in ctx.conn.execute(
         select(b.c.id, b.c.name, b.c.starts_at, b.c.ends_at).where(and_(b.c.starts_at < end, b.c.ends_at > start))).mappings()]
@@ -103,11 +103,15 @@ def schedule_conflicts(ctx: Ctx, start: datetime, end: datetime, *, exclude_even
     if exclude_event:
         overlap = and_(overlap, e.c.id != exclude_event)
     service_clash = []
-    if exclude_event:
-        mine = select(sc.c.business_service_id).where(and_(sc.c.event_id == exclude_event, sc.c.business_service_id.isnot(None)))
+    if exclude_event or service_ids:
+        mine = (select(sc.c.business_service_id).where(and_(sc.c.event_id == exclude_event, sc.c.business_service_id.isnot(None)))
+                if exclude_event else None)
+        svc_filter = sc.c.business_service_id.in_(mine) if mine is not None else sc.c.business_service_id.in_(service_ids or [])
+        if mine is not None and service_ids:
+            svc_filter = or_(svc_filter, sc.c.business_service_id.in_(service_ids))
         service_clash = [dict(r) for r in ctx.conn.execute(
             select(e.c.id, e.c.event_code, e.c.title, e.c.planned_start_at, e.c.planned_end_at).where(and_(
-                overlap, exists(select(sc.c.id).where(and_(sc.c.event_id == e.c.id, sc.c.business_service_id.in_(mine))))))).mappings()]
+                overlap, exists(select(sc.c.id).where(and_(sc.c.event_id == e.c.id, svc_filter)))))).mappings()]
     manager_clash = []
     if manager:
         manager_clash = [dict(r) for r in ctx.conn.execute(
@@ -155,7 +159,8 @@ def create_event(ctx: Ctx, data: dict) -> dict:
     if end <= start:
         raise Unprocessable("planned_end_at must be after planned_start_at")
     _validate_tz(data.get("timezone", "UTC"))
-    conflicts = schedule_conflicts(ctx, start, end, manager=data.get("test_manager_user_id"))
+    conflicts = schedule_conflicts(ctx, start, end, manager=data.get("test_manager_user_id"),
+                                   service_ids=data.get("business_service_ids") or None)
     override = _blackout_gate(ctx, conflicts, data.get("blackout_override_reason"))
 
     tpl = None

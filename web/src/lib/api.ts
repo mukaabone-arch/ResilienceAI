@@ -13,9 +13,9 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+export async function api<T = any>(method: string, path: string, body?: unknown, extra?: Record<string, string>): Promise<T> {
   const s = getSession();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(extra ?? {}) };
   if (s) {
     headers["X-Tenant-Id"] = s.tenantId;
     headers["X-User-Subject"] = s.subject;

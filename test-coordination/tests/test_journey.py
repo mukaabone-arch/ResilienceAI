@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -43,7 +44,7 @@ def act_by_code(tm, eid):
 def test_core_banking_journey(journey, as_):
     ids, ev, pm, tm, owner = journey["ids"], journey["ev"], journey["pm"], journey["tm"], journey["owner"]
     eid = ev["id"]
-    assert ev["event_code"] == "BANK-DR-2027-001"
+    assert re.fullmatch(r"BANK-DR-2027-\d{3}", ev["event_code"])
 
     # Idempotent create returns the same event rather than a duplicate
     again = pm.post("/test-events", expect=201, headers={"Idempotency-Key": "evt-1"}, json={

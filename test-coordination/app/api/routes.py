@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, Query
 
 from .. import schemas as sc
 from ..security import Ctx, get_ctx
-from ..services import audit, events, idempotency, people, views, work
+from ..services import audit, calendar, events, idempotency, people, views, work
 
 router = APIRouter()
 D = Depends(get_ctx)
@@ -64,6 +64,44 @@ def verify_audit(ctx: Ctx = D):
     from ..domain.enums import Role
     require_role(ctx, Role.AUDITOR, Role.RISK, Role.ADMIN)
     return audit.verify_tenant_chain(ctx)
+
+
+# ---- Calendar & scheduling ---------------------------------------------------
+@router.get("/calendar", tags=["calendar"], summary="Screen 02 — tests in a window, with conflict flags and blackouts")
+def get_calendar(start: datetime, end: datetime, category: Optional[str] = None, criticality: Optional[str] = None,
+                 programme_id: Optional[UUID] = None, ctx: Ctx = D):
+    return calendar.calendar(ctx, start, end, category=category, criticality=criticality, programme_id=programme_id)
+
+
+@router.get("/schedule-check", tags=["calendar"], summary="Conflicts a proposed window would create")
+def schedule_check(start: datetime, end: datetime, test_manager_user_id: Optional[UUID] = None,
+                   business_service_ids: list[UUID] = Query(default=[]), exclude_event_id: Optional[UUID] = None,
+                   ctx: Ctx = D):
+    from ..errors import Unprocessable
+    if end <= start:
+        raise Unprocessable("The end must be after the start")
+    return events.schedule_conflicts(ctx, start, end, exclude_event=exclude_event_id, manager=test_manager_user_id,
+                                     service_ids=business_service_ids or None)
+
+
+@router.get("/blackout-periods", tags=["calendar"])
+def blackouts(ctx: Ctx = D):
+    return calendar.list_blackouts(ctx)
+
+
+@router.post("/blackout-periods", status_code=201, tags=["calendar"])
+def create_blackout(data: sc.BlackoutIn, ctx: Ctx = D):
+    return calendar.create_blackout(ctx, body(data))
+
+
+@router.get("/business-services", tags=["directory"])
+def business_services(ctx: Ctx = D):
+    return calendar.business_services(ctx)
+
+
+@router.get("/test-templates", tags=["templates"])
+def list_templates(ctx: Ctx = D):
+    return calendar.templates(ctx)
 
 
 # ---- Programmes & templates --------------------------------------------------

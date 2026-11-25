@@ -46,6 +46,7 @@ function Shell({ children }: { children: ReactNode }) {
   const nav = [
     { href: "/workspace", label: "My work", count: due },
     { href: "/tests", label: "Tests" },
+    { href: "/calendar", label: "Calendar" },
     ...(isPortfolio ? [{ href: "/command", label: "Command centre" }] : []),
   ];
   return (
@@ -57,7 +58,7 @@ function Shell({ children }: { children: ReactNode }) {
         </Link>
         <nav className="nav" aria-label="Main">
           {nav.map((n) => (
-            <Link key={n.href} href={n.href} aria-current={path.startsWith(n.href) ? "page" : undefined}>
+            <Link key={n.href} href={n.href} aria-current={path.startsWith(n.href) && !(n.href === "/tests" && path === "/tests/new") ? "page" : undefined}>
               {n.label}
               {n.count ? <span className="count" aria-label={`${n.count} need attention`}>{n.count}</span> : null}
             </Link>
