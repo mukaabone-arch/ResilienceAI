@@ -15,6 +15,10 @@ class Settings:
     ack_sla_hours: int = int(os.getenv("ACK_SLA_HOURS", "48"))
     notification_max_attempts: int = int(os.getenv("NOTIFICATION_MAX_ATTEMPTS", "5"))
     portal_base_url: str = os.getenv("PORTAL_BASE_URL", "https://resilience.example.com")
+    # Evidence files. "local" keeps them on disk for development; production uses encrypted object storage.
+    evidence_store: str = os.getenv("EVIDENCE_STORE", "local")
+    evidence_dir: str = os.getenv("EVIDENCE_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "evidence-store"))
+    evidence_max_mb: int = int(os.getenv("EVIDENCE_MAX_MB", "25"))
 
 
 settings = Settings()

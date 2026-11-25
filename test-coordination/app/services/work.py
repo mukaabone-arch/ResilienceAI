@@ -365,7 +365,8 @@ def submit_evidence(ctx: Ctx, *, activity_id: UUID | None = None, readiness_item
     out = dict(ctx.conn.execute(insert(evd).values(
         tenant_id=ctx.me.tenant_id, event_id=ev["id"], activity_id=activity_id, readiness_item_id=readiness_item_id,
         evidence_code=code, submitted_by=ctx.me.user_id,
-        **{k: data.get(k) for k in ("evidence_type", "storage_reference", "filename", "checksum", "supersedes_id")}
+        **{k: data.get(k) for k in ("evidence_type", "storage_reference", "filename", "checksum", "supersedes_id")},
+        **{k: data[k] for k in ("storage_backend", "size_bytes", "content_type", "scan_status") if k in data}
     ).returning(evd)).mappings().one())
     audit.record(ctx, "evidence.submitted", "Evidence", out["id"], event_id=ev["id"], new=out)
     return out

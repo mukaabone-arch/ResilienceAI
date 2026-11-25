@@ -1,6 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
+import { useEvidenceUpload } from "./EvidenceUpload";
 import { useDialog } from "./ui";
 
 /**
@@ -11,6 +12,7 @@ export function ActivityActions({ a, meId, canManage, run }: {
   a: any; meId?: string; canManage?: boolean; run: (fn: () => Promise<unknown>, ok?: string) => void;
 }) {
   const { ask, node } = useDialog();
+  const upload = useEvidenceUpload((msg) => run(async () => undefined, msg));
   const isOwner = a.owner_user_id ? a.owner_user_id === meId : true; // workspace rows are always mine
   const canAct = isOwner || canManage;
   const isReviewer = a.reviewer_user_id && a.reviewer_user_id === meId;
@@ -23,15 +25,8 @@ export function ActivityActions({ a, meId, canManage, run }: {
       fields: [{ name: "reason", label: "What is blocking this?", kind: "textarea", required: true }] });
     if (v) patch({ status: "Blocked", blocked_reason: v.reason }, `${a.activity_code} reported as blocked`);
   }
-  async function evidence() {
-    const v = await ask({ title: `Attach evidence to ${a.activity_code}`, confirm: "Attach evidence",
-      description: "The reviewer checks the evidence before it counts toward readiness or closure.",
-      fields: [
-        { name: "evidence_type", label: "Type", kind: "select", options: ["Report", "Screenshot", "Log", "ExternalRecord", "Other"].map((x) => ({ value: x, label: x === "ExternalRecord" ? "External record" : x })) },
-        { name: "filename", label: "Document name", required: true },
-        { name: "storage_reference", label: "Link to the document", required: true, hint: "A SharePoint, ServiceNow or storage link. Direct file upload comes in a later release." },
-      ] });
-    if (v) run(() => api("POST", `/test-activities/${a.id}/evidence`, v), "Evidence attached");
+  function evidence() {
+    upload.open({ kind: "activity", id: a.id, label: `${a.activity_code} ${a.title}` });
   }
   async function review(accept: boolean) {
     const v = accept ? {} : await ask({ title: `Send ${a.activity_code} back`, confirm: "Send back", danger: true,
@@ -61,11 +56,11 @@ export function ActivityActions({ a, meId, canManage, run }: {
       buttons.push(<button key="u" className="btn" onClick={() => patch({ status: "In Progress" }, `${a.activity_code} unblocked`)}>Unblock</button>);
     }
     if (a.evidence_required && ["In Progress", "Submitted", "Completed"].includes(a.status)) {
-      buttons.push(<button key="e" className="btn quiet" onClick={evidence}>Attach evidence</button>);
+      buttons.push(<button key="e" className="btn quiet" onClick={evidence}>Add evidence</button>);
     }
     if (["Not Started", "In Progress"].includes(a.status)) {
       buttons.push(<button key="b" className="btn quiet" onClick={block}>Report blocker</button>);
     }
   }
-  return <div className="task-actions">{buttons}{node}</div>;
+  return <div className="task-actions">{buttons}{node}{upload.node}</div>;
 }

@@ -15,6 +15,7 @@ plus a year-end change freeze (blackout period).
 from __future__ import annotations
 
 import hashlib
+import shutil
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -40,6 +41,10 @@ class Api:
 
 
 def main() -> None:
+    # A reset starts from an empty local evidence store too (never touches a real object store).
+    from app.config import settings
+    if settings.evidence_store == "local":
+        shutil.rmtree(settings.evidence_dir, ignore_errors=True)
     with worker_engine().begin() as conn:
         reset(conn)
         conn.exec_driver_sql("GRANT ALL ON SCHEMA public TO app_user")
@@ -102,6 +107,14 @@ def main() -> None:
         api(sub, "POST", f"/test-stakeholders/{st[sub]['id']}/respond", {"accept": True})
     api("meera.tm", "POST", f"/test-events/{cb['id']}/transitions", {"action": "begin_readiness"})
     move("anita.infra", acts["INF-01"]["id"], "In Progress", "Submitted")
+    log = (b"2026-11-24 22:10 DR site power and cooling checks passed\n"
+           b"2026-11-24 22:25 Storage array replication healthy, lag 42s\n"
+           b"2026-11-24 22:40 Compute capacity reserved: 64 vCPU, 512 GB\n")
+    r = api.c.post(f"/api/v1/test-activities/{acts['INF-01']['id']}/evidence/upload",
+                   headers={"X-Tenant-Id": api.tenant, "X-User-Subject": "anita.infra"},
+                   files={"file": ("dr-site-readiness.log", log, "text/plain")}, data={"evidence_type": "Log"})
+    if r.status_code >= 400:
+        raise RuntimeError(f"demo upload failed: {r.status_code} {r.text}")
     move("kiran.net", acts["NET-01"]["id"], "In Progress")
     move("rahul.dba", acts["DB-01"]["id"], "In Progress", "Blocked",
          reason="Recovery point is 40 minutes old; waiting for a fresh storage snapshot from the vendor")

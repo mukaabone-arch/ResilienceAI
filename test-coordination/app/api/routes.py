@@ -5,11 +5,12 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
+from fastapi.responses import Response
 
 from .. import schemas as sc
 from ..security import Ctx, get_ctx
-from ..services import audit, calendar, events, idempotency, people, series, views, work
+from ..services import audit, calendar, events, evidence, idempotency, people, series, views, work
 
 router = APIRouter()
 D = Depends(get_ctx)
@@ -299,6 +300,59 @@ def readiness(event_id: UUID, ctx: Ctx = D):
 @router.post("/test-readiness-items/{item_id}/evidence", status_code=201, tags=["evidence"])
 def readiness_evidence(item_id: UUID, data: sc.EvidenceIn, ctx: Ctx = D):
     return work.submit_evidence(ctx, readiness_item_id=item_id, data=body(data))
+
+
+EVIDENCE_TYPES = ("Report", "Screenshot", "Log", "Approval", "ExternalRecord", "Other")
+
+
+async def _upload(ctx: Ctx, file: UploadFile, evidence_type: str, sha256: Optional[str], supersedes_id: Optional[UUID],
+                  activity_id: Optional[UUID] = None, readiness_item_id: Optional[UUID] = None):
+    from ..config import settings
+    from ..errors import Unprocessable
+    if evidence_type not in EVIDENCE_TYPES:
+        raise Unprocessable(f"evidence_type must be one of {', '.join(EVIDENCE_TYPES)}")
+    data = await file.read(settings.evidence_max_mb * 1024 * 1024 + 1)
+    return evidence.upload(ctx, activity_id=activity_id, readiness_item_id=readiness_item_id, filename=file.filename or "",
+                           data=data, content_type=file.content_type, evidence_type=evidence_type,
+                           client_sha256=sha256, supersedes_id=supersedes_id)
+
+
+@router.post("/test-activities/{activity_id}/evidence/upload", status_code=201, tags=["evidence"],
+             summary="Upload an evidence file for an activity (multipart)")
+async def upload_activity_evidence(activity_id: UUID, file: UploadFile = File(...), evidence_type: str = Form("Report"),
+                                   sha256: Optional[str] = Form(None), supersedes_id: Optional[UUID] = Form(None), ctx: Ctx = D):
+    return await _upload(ctx, file, evidence_type, sha256, supersedes_id, activity_id=activity_id)
+
+
+@router.post("/test-readiness-items/{item_id}/evidence/upload", status_code=201, tags=["evidence"],
+             summary="Upload an evidence file for a readiness condition (multipart)")
+async def upload_readiness_evidence(item_id: UUID, file: UploadFile = File(...), evidence_type: str = Form("Report"),
+                                    sha256: Optional[str] = Form(None), supersedes_id: Optional[UUID] = Form(None), ctx: Ctx = D):
+    return await _upload(ctx, file, evidence_type, sha256, supersedes_id, readiness_item_id=item_id)
+
+
+@router.get("/test-events/{event_id}/evidence", tags=["evidence"], summary="Screen 09 — evidence register")
+def evidence_register(event_id: UUID, ctx: Ctx = D):
+    return evidence.register(ctx, event_id)
+
+
+@router.get("/test-evidence/{evidence_id}/download", tags=["evidence"], summary="Download (checksum verified first)")
+def download_evidence(evidence_id: UUID, ctx: Ctx = D):
+    from urllib.parse import quote
+    from fastapi.responses import JSONResponse
+    data, item, failure = evidence.download(ctx, evidence_id)
+    if failure:
+        return JSONResponse(status_code=409, content=failure)
+    name = item["filename"] or "evidence"
+    # Always served as an attachment with a neutral type, so an uploaded file can never run in the app's origin.
+    return Response(content=data, media_type="application/octet-stream", headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+        "X-Content-Type-Options": "nosniff", "X-Evidence-SHA256": item["checksum"], "Cache-Control": "no-store"})
+
+
+@router.post("/test-evidence/{evidence_id}/verify", tags=["evidence"], summary="Re-check a stored file against its checksum")
+def verify_evidence(evidence_id: UUID, ctx: Ctx = D):
+    return evidence.verify(ctx, evidence_id)
 
 
 @router.post("/test-evidence/{evidence_id}/review", tags=["evidence"])

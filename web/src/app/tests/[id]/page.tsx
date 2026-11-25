@@ -7,7 +7,7 @@ import { ErrorNotice, Loading, Pill, useAction, useDialog } from "@/components/u
 import { api, useApi } from "@/lib/api";
 import { useMe } from "@/lib/me";
 import { fmtDateTime, isoToZonedInput, relative, tzLabel, zonedToIso } from "@/lib/format";
-import { ActivitiesTab, ClosureTab, OverviewTab, PeopleTab, ReadinessTab, TimelineTab } from "./tabs";
+import { ActivitiesTab, ClosureTab, EvidenceTab, OverviewTab, PeopleTab, ReadinessTab, TimelineTab } from "./tabs";
 
 const SERIES_LABEL: Record<string, string> = { weekly: "weekly", monthly: "monthly", quarterly: "quarterly", half_yearly: "every 6 months", yearly: "yearly" };
 const TRACK = ["Draft", "Planned", "Mobilising", "Readiness", "Ready", "Live", "Closure", "Closed"];
@@ -17,6 +17,7 @@ const TABS = [
   { key: "readiness", label: "Readiness and go" },
   { key: "people", label: "People" },
   { key: "timeline", label: "Timeline" },
+  { key: "evidence", label: "Evidence" },
   { key: "closure", label: "Findings and closure" },
 ];
 
@@ -166,6 +167,7 @@ function EventWorkspace() {
       {tab === "readiness" && <ReadinessTab {...ctx} />}
       {tab === "people" && <PeopleTab {...ctx} />}
       {tab === "timeline" && <TimelineTab {...ctx} />}
+      {tab === "evidence" && <EvidenceTab {...ctx} />}
       {tab === "closure" && <ClosureTab {...ctx} />}
       {node}
     </>
