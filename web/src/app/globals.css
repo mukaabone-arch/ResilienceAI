@@ -258,15 +258,54 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---------- Sign-in ---------- */
 .signin { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
-.signin-side { background: var(--ink); color: #dfe5ee; padding: 48px; display: flex; flex-direction: column; justify-content: space-between; }
+.signin-side { background: var(--ink); color: #dfe5ee; padding: 48px 48px 72px; border-right: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; justify-content: space-between; }
 .signin-side h1 { color: #fff; font-size: var(--t-3xl); max-width: 14ch; margin-top: 28px; }
 .signin-side p { max-width: 46ch; color: #b8c4d4; margin-top: 14px; }
-.signin-main { padding: 48px; overflow-y: auto; }
-.people { list-style: none; padding: 0; margin: 16px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.people button { width: 100%; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: var(--r-control); padding: 10px 12px; cursor: pointer; }
-.people button:hover { border-color: var(--action); }
-.people .n { font-weight: 600; display: block; }
-.people .r { font-size: var(--t-xs); color: var(--ink-3); }
+/* The person list is frosted glass over the same ink as the brand panel, lit by two soft fields of the
+   brand's teal and green so the blur has something to catch. */
+.signin-main {
+  position: relative; isolation: isolate; padding: 48px; overflow-y: auto; color: #e6ecf3;
+  background:
+    radial-gradient(ellipse 60% 45% at 85% 12%, rgba(47, 160, 140, 0.55), transparent 70%),
+    radial-gradient(ellipse 55% 50% at 10% 95%, rgba(127, 194, 160, 0.35), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 60% 60%, rgba(64, 112, 196, 0.30), transparent 70%),
+    #142036;
+}
+.signin-main h2 { color: #fff; }
+.signin-main .muted { color: #a9b6c7; }
+.signin-main label { color: #cfd8e3; }
+.people { list-style: none; padding: 0; margin: 20px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.people button {
+  width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center;
+  text-align: left; color: inherit; cursor: pointer; padding: 14px 16px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 24px rgba(4, 10, 24, 0.25);
+  -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%);
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+.people button:hover {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0.08));
+  border-color: rgba(127, 194, 160, 0.65); transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 12px 28px rgba(4, 10, 24, 0.32);
+}
+.people button:focus-visible { outline: 2px solid #7fc2a0; outline-offset: 2px; }
+.people .av {
+  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  font-size: var(--t-sm); font-weight: 700; color: #fff; letter-spacing: 0.02em;
+  background: rgba(127, 194, 160, 0.22); border: 1px solid rgba(127, 194, 160, 0.55);
+}
+.people .av.ext { background: rgba(232, 176, 92, 0.2); border-color: rgba(232, 176, 92, 0.6); }
+.people .n { font-weight: 600; display: block; color: #fff; }
+.people .r { font-size: var(--t-xs); color: #b9c5d4; display: block; }
+.people .d { font-size: var(--t-xs); color: #8e9cb0; display: block; }
+/* Where the browser can't blur, or the person asked for less transparency, the cards go solid. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .people button { background: #22314b; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .people button { background: #22314b; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
 
 @media (max-width: 960px) {
   .shell { grid-template-columns: 1fr; background: var(--ground); }
@@ -279,7 +318,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .today a:nth-child(2) { border-right: none; }
   .today a:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
   .signin { grid-template-columns: 1fr; }
-  .signin-side { padding: 28px; }
+  .signin-side { padding: 28px; border-right: none; }
+  .signin-main { padding: 28px 20px 40px; }
   .people { grid-template-columns: 1fr; }
   .gate-verdict { grid-template-columns: auto 1fr; }
   .gate-count { grid-column: 1 / -1; text-align: left; }
