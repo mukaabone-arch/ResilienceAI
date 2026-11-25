@@ -7,23 +7,26 @@ FastAPI + PostgreSQL service implementing the coordination-first MVP domain: pro
 ## Run it
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # runtime + pytest and ruff (the image installs requirements.txt only)
 # PostgreSQL 15+ with two roles: an owner (runs migrations) and app_user (no table ownership, so RLS applies)
 createuser app_user --pwprompt        # password "app" matches the default DATABASE_URL
 createdb resilience
 export WORKER_DATABASE_URL=postgresql+psycopg://postgres@localhost/resilience
 export DATABASE_URL=postgresql+psycopg://app_user:app@localhost/resilience
-python -m scripts.seed --reset        # applies migrations/*.sql and seeds tenant BANK with a user per role
+python -m scripts.migrate             # applies pending migrations/*.sql; --status lists them
+python -m scripts.seed --reset        # wipes, migrates and seeds tenant BANK with a user per role
 python -m scripts.demo                # optional: reset and load a demo portfolio (tests at every stage)
 uvicorn app.main:app --reload         # OpenAPI docs at http://localhost:8000/docs
 ```
 
 Dev authentication (`AUTH_MODE=dev`, the default) uses the headers `X-Tenant-Id: <printed by seed>` and `X-User-Subject: arjun.pm`. Seeded subjects: `arjun.pm` (programme manager), `meera.tm` (test manager), `vikram.owner`, `rahul.dba`, `farah.biz` (business owner), `rohan.risk`, `leela.cio`, `ext.vendor`, `audit.ia`, and others; see `scripts/seed.py`. **Production must use `AUTH_MODE=oidc`** with `verify_oidc_token` wired to Entra ID.
 
+An existing database created before `scripts.migrate` existed needs `python -m scripts.migrate --baseline` once (or rerun `scripts.demo`). Deployment with Docker: [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
+
 ## Tests
 
 ```bash
-pytest -q        # 18 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
+pytest -q        # 55 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
 ```
 
 `tests/test_journey.py::test_core_banking_journey` walks the spec §31 demo end to end: programme → template → event → plan approval → stakeholders and acknowledgements → blocked DB prerequisite → readiness gate refuses go → evidence reject/resubmit → readiness exception → go decision → live (announcements, pause/resume) → RTO/RPO capture → findings → closure checklist → sign-offs → frozen closure report → audit-chain verification. Other tests cover QA-04/05/07/13/14/15 and transaction rollback.

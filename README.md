@@ -1,6 +1,16 @@
 # ResilienceAI
 Agentic AI repositories
 
+## Quick start
+
+```bash
+cp .env.example .env                 # change the passwords
+docker compose up -d --build         # database, migrations, API, worker and web app
+docker compose --profile demo run --rm demo    # optional demo data
+```
+
+Then open http://localhost:3000. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration, upgrades and the production checklist. For development without Docker, follow the module READMEs below.
+
 ## Modules
 
 | Module | Description |

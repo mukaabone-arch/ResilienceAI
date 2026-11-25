@@ -8,9 +8,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
 from .api.routes import router
+from .config import check_production
 from .errors import DomainError
 
 log = logging.getLogger("resilienceai")
+
+_unsafe = check_production()
+if _unsafe:
+    raise RuntimeError("Refusing to start in production: " + "; ".join(_unsafe))
 
 app = FastAPI(
     title="ResilienceAI — Test Coordination API",
@@ -49,6 +54,20 @@ def dev_directory():
     return {"tenants": tenants, "users": users}
 
 
-@app.get("/health", tags=["ops"])
+@app.get("/health", tags=["ops"], summary="Liveness: the process is up")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/ready", tags=["ops"], summary="Readiness: the database is reachable and migrated")
+def ready():
+    from sqlalchemy import text
+
+    from .db import engine
+    try:
+        with engine().connect() as c:
+            c.execute(text("SELECT 1 FROM test_events LIMIT 1"))
+        return {"status": "ready"}
+    except Exception as e:  # noqa: BLE001 - report, don't crash the probe
+        log.warning("not ready: %s", e)
+        return JSONResponse(status_code=503, content={"status": "not ready", "reason": type(e).__name__})
