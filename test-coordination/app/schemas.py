@@ -258,3 +258,16 @@ class SeriesIn(EventIn):
     frequency: Literal["weekly", "monthly", "quarterly", "half_yearly", "yearly"]
     count: int = Field(ge=2, le=52)
     skip_blackout_occurrences: bool = False
+
+
+class AiGenerateIn(Model):
+    feature: Literal["blocker_briefing", "slip_forecast", "status_summary", "message_draft"]
+    kind: Optional[Literal["reminder", "escalation", "readiness_update", "go_request"]] = None
+
+
+class AiDecisionIn(Model):
+    action: Literal["accept", "dismiss"]
+    feedback: Optional[str] = Field(default=None, max_length=1000)
+    subject: Optional[str] = Field(default=None, max_length=250)
+    intro: Optional[str] = Field(default=None, max_length=4000)
+    exclude_recipients: list[UUID] = Field(default_factory=list)

@@ -366,3 +366,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .occ > li { padding: 8px 0; align-items: center; }
 .occ > li.skipped .grow { text-decoration: line-through; opacity: 0.6; }
+
+/* ---------- Assistant ---------- */
+.ai-card { border-left: 3px solid var(--action); }
+.ai-tag { font-size: var(--t-xs); font-weight: 600; color: var(--action); background: var(--action-tint); border-radius: 4px; padding: 2px 7px; }
+.ai-text p { font-size: var(--t-sm); margin: 0 0 6px; }
+.ai-text p.ai-sub { font-weight: 650; margin-top: 10px; }
+.ai-list { margin: 0 0 6px; padding-left: 20px; font-size: var(--t-sm); }
+.ai-list li { margin-bottom: 4px; }
+.ai-prov { margin-top: 10px; }
+.draft { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
+.recip { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; }
+.recip input { margin-top: 3px; }

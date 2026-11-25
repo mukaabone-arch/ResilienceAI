@@ -48,6 +48,25 @@ docs/DESIGN_NOTES.md   spec review: gaps found and decisions taken
 - **Outbox:** communications and per-recipient/per-channel jobs are written in the business transaction. `notifications.dispatch_all_tenants()` delivers with exponential backoff and dead-letters after 5 attempts. Channels use `SimulatedAdapter` until the Graph and SMTP adapters are registered in `ADAPTERS`.
 - **Escalations:** `people.run_escalations(tenant_id)` handles acknowledgement-SLA breaches and overdue activities. It is idempotent, so it is safe to schedule (Temporal or cron).
 
+## Assistant (AI, first step: RA-069 to RA-072)
+
+Four features, each grounded in the test's own records and logged in `ai_activity_records` with its sources:
+
+| Feature | Where | Who |
+|---|---|---|
+| Blocker briefing: what holds up the go, and who should do what next | Readiness tab | Internal participants |
+| Readiness forecast: projected readiness date, what drives it, the rules used | Readiness tab | Internal participants |
+| Status summary: short executive update; every 30 min automatically while live | Timeline tab | Internal participants |
+| Message drafts: reminder, escalation, readiness update, go request | Timeline tab | Test manager, owner, programme manager |
+
+Rules that always hold:
+- The assistant only reads. It never approves, starts, closes or fails over anything, and the readiness gate stays rule-based. A draft is sent only when a manager presses Send, in their name.
+- Every suggestion is stored with the records it used and what a person did with it (helpful, edited, sent, dismissed with a reason). Programme, risk, audit and admin roles see this in **Reports → Assistant oversight**.
+- External users (vendors) don't get the assistant.
+- `AI_PROVIDER=rules` (default) writes everything from the records with no external service. `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` lets Claude (`AI_MODEL`) reword that text: names are replaced with placeholders before sending, the model may use only the facts given, and its answer is checked (no unknown record codes or people, sensible length). Any failure falls back to the built-in text, and the reason is logged.
+
+Scheduled jobs (notification delivery, escalations, live summaries): `python -m scripts.worker` (every minute) or `--once` from cron.
+
 ## Reports
 
 - `GET /test-events/{id}/closure-report.pdf`: closure report (A4 PDF). A closed test's report is rendered from the snapshot frozen at closure; before that it is marked DRAFT and lists what is outstanding.

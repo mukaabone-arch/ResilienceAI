@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ActivityActions } from "@/components/ActivityActions";
+import { AssistantCards, MessageDrafts } from "@/components/Assistant";
 import { DependencyMap } from "@/components/DependencyMap";
 import { useEvidenceUpload } from "@/components/EvidenceUpload";
 import { ReadinessGate } from "@/components/ReadinessGate";
@@ -245,6 +246,7 @@ export function ReadinessTab(ctx: Ctx) {
         {upload.node}
       </div>
       <div className="stack">
+        {!me.is_external && <AssistantCards ev={ev} features={["blocker_briefing", "slip_forecast"]} />}
         <Panel title="Go decision">
           {ev.lifecycle_status === "Ready" ? (
             <>
@@ -396,6 +398,8 @@ export function TimelineTab(ctx: Ctx) {
       </Panel>
       <div className="stack">
         {feedback}
+        {!me.is_external && <AssistantCards ev={ev} features={["status_summary"]} />}
+        {ev.can_manage && !["Closed", "Cancelled"].includes(ev.lifecycle_status) && <MessageDrafts ev={ev} onSent={reload} />}
         {around && (
           <Panel title={ev.can_manage ? "Post to this test" : "Add an update"}>
             <div className="field">

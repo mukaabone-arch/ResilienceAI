@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
 from fastapi.responses import Response
 
 from .. import schemas as sc
+from ..ai import service as assistant
 from ..security import Ctx, get_ctx
 from ..services import audit, calendar, events, evidence, idempotency, people, reports, series, views, work
 
@@ -218,6 +219,30 @@ def programme_status_xlsx(programme_id: Optional[UUID] = None, tz: str = "Asia/K
         raise Unprocessable(f"Unknown time zone '{tz}'") from e
     data, name = reports.programme_xlsx(ctx, programme_id, tz)
     return _file(data, name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# ---- Assistant (RA-069..072) ---------------------------------------------------
+@router.post("/test-events/{event_id}/assistant", status_code=201, tags=["assistant"],
+             summary="Generate a grounded suggestion (briefing, forecast, summary or message draft)")
+def assistant_generate(event_id: UUID, data: sc.AiGenerateIn, ctx: Ctx = D):
+    return assistant.generate(ctx, event_id, data.feature, data.kind)
+
+
+@router.get("/test-events/{event_id}/assistant", tags=["assistant"], summary="Latest suggestions and their history")
+def assistant_list(event_id: UUID, ctx: Ctx = D):
+    return assistant.list_for_event(ctx, event_id)
+
+
+@router.post("/assistant/suggestions/{record_id}/decision", tags=["assistant"],
+             summary="Accept (send, for message drafts) or dismiss a suggestion")
+def assistant_decide(record_id: UUID, data: sc.AiDecisionIn, ctx: Ctx = D):
+    return assistant.decide(ctx, record_id, data.action, feedback=data.feedback, subject=data.subject,
+                            intro=data.intro, exclude=data.exclude_recipients)
+
+
+@router.get("/assistant/log", tags=["assistant"], summary="AI oversight log for programme, risk, audit and admin roles")
+def assistant_log(feature: Optional[str] = None, status: Optional[str] = None, limit: int = Query(200, le=1000), ctx: Ctx = D):
+    return assistant.oversight_log(ctx, limit, feature, status)
 
 
 @router.get("/test-events/{event_id}/timeline", tags=["live"])
