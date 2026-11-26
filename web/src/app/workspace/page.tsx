@@ -50,7 +50,7 @@ export default function Workspace() {
       {feedback}
       <nav className="today" aria-label="Summary">
         {strip.map((s) => (
-          <a key={s.label} href={s.href} className={s.alert ? "alert" : ""}><strong>{s.n}</strong><span>{s.label}</span></a>
+          <a key={s.label} href={s.href} className={s.alert ? "alert" : s.n === 0 ? "zero" : ""}><strong>{s.n}</strong><span>{s.label}</span></a>
         ))}
       </nav>
 
