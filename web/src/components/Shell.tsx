@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
+import type { AccountInfo } from "@azure/msal-browser";
 import { api, useApi } from "@/lib/api";
+import { initEntra, loadAuthConfig, signInWithMicrosoft, signOut } from "@/lib/auth";
 import { roleName } from "@/lib/format";
 import { MeContext } from "@/lib/me";
 import { getSession, Session, setSession } from "@/lib/session";
@@ -39,17 +41,49 @@ function NavIcon({ href }: { href: string }) {
 
 const PORTFOLIO_ROLES = ["EnterpriseProgrammeAdministrator", "DRProgrammeManager", "RiskCompliance", "SeniorManagement", "Auditor"];
 
+type AuthState =
+  | { kind: "loading" }
+  | { kind: "unreachable" }
+  | { kind: "dev"; session: Session | null }
+  | { kind: "sso"; account: AccountInfo | null; error?: string };
+
+function friendlySignInError(e: unknown): string {
+  const code = (e as { errorCode?: string })?.errorCode ?? "";
+  if (code === "user_cancelled") return "Sign-in was cancelled.";
+  if (code === "popup_window_error" || code === "interaction_in_progress") return "A sign-in is already in progress. Try again in a moment.";
+  const msg = e instanceof Error ? e.message : String(e);
+  return `Microsoft sign-in didn't complete. ${msg.split("\n")[0]}`;
+}
+
 export function AppFrame({ children }: { children: ReactNode }) {
-  const [session, setS] = useState<Session | null | undefined>(undefined);
+  const [auth, setAuth] = useState<AuthState>({ kind: "loading" });
   useEffect(() => {
-    const sync = () => setS(getSession());
-    sync();
-    window.addEventListener("resilienceai-session", sync);
-    return () => window.removeEventListener("resilienceai-session", sync);
+    let live = true;
+    const syncDev = () => live && setAuth({ kind: "dev", session: getSession() });
+    loadAuthConfig()
+      .then(async (cfg) => {
+        if (cfg.mode === "dev") {
+          syncDev();
+          window.addEventListener("resilienceai-session", syncDev);
+          return;
+        }
+        try {
+          const account = await initEntra(cfg);
+          if (live) setAuth({ kind: "sso", account });
+        } catch (e) {
+          if (live) setAuth({ kind: "sso", account: null, error: friendlySignInError(e) });
+        }
+      })
+      .catch(() => live && setAuth({ kind: "unreachable" }));
+    return () => { live = false; window.removeEventListener("resilienceai-session", syncDev); };
   }, []);
-  if (session === undefined) return null;
-  if (!session) return <SignIn />;
-  return <Shell key={session.subject + session.tenantId}>{children}</Shell>;
+  if (auth.kind === "loading") return null;
+  if (auth.kind === "unreachable") return <SignIn />;   // shows how to start the API
+  if (auth.kind === "sso") {
+    return auth.account ? <Shell key={auth.account.homeAccountId} sso>{children}</Shell> : <MicrosoftSignIn error={auth.error} />;
+  }
+  if (!auth.session) return <SignIn />;
+  return <Shell key={auth.session.subject + auth.session.tenantId}>{children}</Shell>;
 }
 
 /** Small-screen helpers that work for every page without per-table markup:
@@ -85,14 +119,16 @@ function useSmallScreenHelpers() {
   }, []);
 }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, sso = false }: { children: ReactNode; sso?: boolean }) {
   const path = usePathname();
   useSmallScreenHelpers();
   const { data: me, error } = useApi<any>("/me");
-  const { data: ws } = useApi<any>("/me/workspace");
+  const { data: ws } = useApi<any>(me ? "/me/workspace" : null);
+  const denied = error?.status === 403 || error?.status === 401;
   useEffect(() => {
-    if (error?.status === 403 || error?.status === 401) setSession(null);
-  }, [error]);
+    if (denied && !sso) setSession(null);   // dev: the chosen person no longer exists (e.g. demo data reloaded)
+  }, [denied, sso]);
+  if (denied && sso) return <AccessProblem message={error!.message} />;
   const due = ws ? ws.overdue.length + ws.pending_acknowledgements.length : 0;
   const isPortfolio = me?.roles?.some((r: string) => PORTFOLIO_ROLES.includes(r));
   const nav = [
@@ -126,13 +162,82 @@ function Shell({ children }: { children: ReactNode }) {
               <div className="role">{me.roles.map(roleName).join(", ")}</div>
             </>
           )}
-          <button type="button" onClick={() => setSession(null)}>Switch person</button>
+          {sso
+            ? <button type="button" onClick={() => signOut()}>Sign out</button>
+            : <button type="button" onClick={() => setSession(null)}>Switch person</button>}
         </div>
       </aside>
       <main className="main">
         {/* Pages render only once the person is known, and all read the same identity. */}
         {me ? <MeContext.Provider value={me}>{children}</MeContext.Provider> : <p className="muted small">Loading…</p>}
       </main>
+    </div>
+  );
+}
+
+function SignInSide({ footnote }: { footnote: string }) {
+  return (
+    <section className="signin-side">
+      <div className="brand"><BrandMark /><span className="brand-name">ResilienceAI</span></div>
+      <div>
+        <h1>Every resilience test, one place to coordinate it.</h1>
+        <p>Plan the annual programme, mobilise the people, hold the go decision to its readiness conditions,
+          and keep the evidence auditors will ask for.</p>
+      </div>
+      <p className="xs">{footnote}</p>
+    </section>
+  );
+}
+
+function MicrosoftLogo() {
+  return (
+    <svg viewBox="0 0 21 21" width="20" height="20" aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" /><rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
+function MicrosoftSignIn({ error }: { error?: string }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(error);
+  async function go() {
+    setBusy(true); setErr(undefined);
+    try { await signInWithMicrosoft(); } catch (e) { setErr(friendlySignInError(e)); setBusy(false); }
+  }
+  return (
+    <div className="signin">
+      <SignInSide footnote="Single sign-on with Microsoft Entra ID. Your organisation manages your account and access." />
+      <section className="signin-main sso">
+        <div className="sso-card">
+          <h2>Sign in</h2>
+          <p className="muted small" style={{ marginTop: 6 }}>Use your work Microsoft account. You&apos;ll see the tests and actions your role allows.</p>
+          {err && <div className="notice error" role="alert" style={{ marginTop: 16, marginBottom: 0 }}>{err}</div>}
+          <button type="button" className="ms-btn" onClick={go} disabled={busy}>
+            <MicrosoftLogo />{busy ? "Opening Microsoft sign-in…" : "Sign in with Microsoft"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Signed in with Microsoft, but ResilienceAI doesn't know the person or their organisation. */
+function AccessProblem({ message }: { message: string }) {
+  return (
+    <div className="signin">
+      <SignInSide footnote="Single sign-on with Microsoft Entra ID." />
+      <section className="signin-main sso">
+        <div className="sso-card">
+          <h2>You can&apos;t open ResilienceAI yet</h2>
+          <p className="small" style={{ marginTop: 8 }}>{message}</p>
+          <p className="muted small" style={{ marginTop: 8 }}>Once they&apos;ve added your work email, try again.</p>
+          <div className="btn-row" style={{ marginTop: 20 }}>
+            <button type="button" className="ms-btn" style={{ marginTop: 0 }} onClick={() => window.location.reload()}>Try again</button>
+            <button type="button" className="ms-btn quiet" style={{ marginTop: 0 }} onClick={() => signOut()}>Use another account</button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -154,15 +259,7 @@ function SignIn() {
   const people = dir?.users.filter((u: any) => u.tenant_id === tenant) ?? [];
   return (
     <div className="signin">
-      <section className="signin-side">
-        <div className="brand"><BrandMark /><span className="brand-name">ResilienceAI</span></div>
-        <div>
-          <h1>Every resilience test, one place to coordinate it.</h1>
-          <p>Plan the annual programme, mobilise the people, hold the go decision to its readiness conditions,
-            and keep the evidence auditors will ask for.</p>
-        </div>
-        <p className="xs">Development sign-in. Production uses your organisation&apos;s single sign-on.</p>
-      </section>
+      <SignInSide footnote="Development sign-in. Production uses your organisation's single sign-on." />
       <section className="signin-main">
         <h2>Choose who to act as</h2>
         <p className="muted small" style={{ marginTop: 6 }}>Each person sees only the tests and actions their role allows.</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getSession } from "./session";
+import { authHeaders } from "./auth";
 
 export class ApiError extends Error {
   status: number;
@@ -14,12 +14,7 @@ export class ApiError extends Error {
 }
 
 export async function api<T = any>(method: string, path: string, body?: unknown, extra?: Record<string, string>): Promise<T> {
-  const s = getSession();
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(extra ?? {}) };
-  if (s) {
-    headers["X-Tenant-Id"] = s.tenantId;
-    headers["X-User-Subject"] = s.subject;
-  }
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(await authHeaders()), ...(extra ?? {}) };
   const res = await fetch(`/api/v1${path}`, {
     method,
     headers,
@@ -58,14 +53,9 @@ export function useApi<T = any>(path: string | null) {
   return { data, error, loading, reload };
 }
 
-function authHeaders(): Record<string, string> {
-  const s = getSession();
-  return s ? { "X-Tenant-Id": s.tenantId, "X-User-Subject": s.subject } : {};
-}
-
 /** Multipart upload (the browser sets the boundary, so no Content-Type header here). */
 export async function apiUpload<T = any>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(`/api/v1${path}`, { method: "POST", headers: authHeaders(), body: form });
+  const res = await fetch(`/api/v1${path}`, { method: "POST", headers: await authHeaders(), body: form });
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* non-JSON error page */ }
@@ -78,7 +68,7 @@ export async function apiUpload<T = any>(path: string, form: FormData): Promise<
 
 /** Fetch a protected file and hand it to the browser as a download. */
 export async function downloadFile(path: string, fallbackName: string): Promise<void> {
-  const res = await fetch(`/api/v1${path}`, { headers: authHeaders(), cache: "no-store" });
+  const res = await fetch(`/api/v1${path}`, { headers: await authHeaders(), cache: "no-store" });
   if (!res.ok) {
     let data: any = null;
     try { data = await res.json(); } catch { /* ignore */ }

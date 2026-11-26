@@ -42,7 +42,11 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | Variable | Used by | Default | Notes |
 |---|---|---|---|
 | `APP_ENV` | api | `development` | `production` turns on the startup guard below |
-| `AUTH_MODE` | api | `dev` | `dev` = demo sign-in by header. Production: `oidc` |
+| `AUTH_MODE` | api | `dev` | `dev` = demo sign-in by header. Production: `oidc` (Microsoft Entra ID) |
+| `ENTRA_TENANT_ID` | api | none | The bank's Entra directory (tenant) id, or `organizations` to accept several linked directories |
+| `ENTRA_CLIENT_ID` | api | none | Application (client) id of the ResilienceAI app registration |
+| `ENTRA_ROLES_FROM_TOKEN` | api | `true` | Entra app roles in the token replace the person's stored roles at sign-in |
+| `ENTRA_BIND_BY_EMAIL` | api | `true` | Link a person provisioned by email to their Entra account at first sign-in |
 | `DATABASE_URL` | api | local socket | Restricted `app_user` login |
 | `WORKER_DATABASE_URL` | migrate, worker, demo, api* | local socket | Table owner. *The API uses it only for the dev sign-in directory; don't set it on the API in production |
 | `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` | compose | none | Required. The DB init script creates `app_user` with the second |
@@ -55,11 +59,66 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `ACK_SLA_HOURS`, `NOTIFICATION_MAX_ATTEMPTS` | worker | `48`, `5` | |
 | `API_URL` | web build | `http://api:8000` | Build argument: Next.js fixes rewrites at build time |
 
+## Microsoft Entra ID sign-in
+
+With `AUTH_MODE=oidc` people sign in with their work Microsoft account (authorization code flow with PKCE, in the
+browser). The API accepts only Entra v2 access tokens issued for it: signature against Entra's published keys,
+issuer, audience, expiry and the `access_as_user` scope. The token's directory selects the organisation and its
+object id the person. Demo sign-in and its directory endpoint are switched off.
+
+### 1. Register the app (Entra admin centre, by the bank's identity team)
+
+1. **App registrations → New registration.** Name: ResilienceAI. Supported account types: *this organisational
+   directory only* (a SaaS deployment serving several banks uses *any organisational directory*).
+   Redirect URI: platform **Single-page application**, `https://<your ResilienceAI address>/`
+   (add `http://localhost:3000/` only for a test registration).
+2. **Expose an API.** Set the Application ID URI to `api://<client id>` and add a scope named
+   `access_as_user` (who can consent: admins and users).
+3. **Manifest.** Set the requested access-token version to 2 (`"requestedAccessTokenVersion": 2` under `api`;
+   older manifests call it `"accessTokenAcceptedVersion": 2`). ResilienceAI rejects v1 tokens.
+4. **API permissions.** Add *My APIs → ResilienceAI → access_as_user* and grant admin consent.
+5. **App roles** (recommended). Create one app role per ResilienceAI role, allowed for users/groups, with these
+   exact values: `EnterpriseProgrammeAdministrator`, `DRProgrammeManager`, `TestManager`, `TeamLead`,
+   `TechnicalStakeholder`, `BusinessOwner`, `RiskCompliance`, `SeniorManagement`, `ExternalVendor`, `Auditor`.
+   Then in **Enterprise applications → ResilienceAI → Users and groups** assign people or groups to roles, and set
+   *Assignment required* to Yes so only assigned people can sign in.
+
+### 2. Configure ResilienceAI
+
+```bash
+# .env
+AUTH_MODE=oidc
+ENTRA_TENANT_ID=<directory (tenant) id>
+ENTRA_CLIENT_ID=<application (client) id>
+```
+
+Link the organisation to its directory and add people by work email (their first sign-in links their account):
+
+```bash
+docker compose run --rm migrate python -m scripts.entra link BANK <directory (tenant) id>
+docker compose run --rm migrate python -m scripts.entra add-user BANK priya.nair@bank.example "Priya Nair" EnterpriseProgrammeAdministrator
+docker compose run --rm migrate python -m scripts.entra status BANK
+```
+
+Roles given here are used until the person signs in with Entra app roles, which then take over
+(`ENTRA_ROLES_FROM_TOKEN=true`). Someone who signs in but hasn't been added sees a message to ask their
+administrator; nothing is created for them automatically.
+
+### How it behaves
+
+- Tokens are kept in the browser tab's session storage and renewed silently; closing the tab signs out of
+  ResilienceAI (not of Microsoft). **Sign out** clears ResilienceAI and sends the browser to Microsoft to end the
+  Microsoft session too.
+- A person is identified by their Entra object id, never by email. The email is used once, to link a provisioned
+  person at first sign-in; an already-linked person can't be claimed by another account with the same email.
+- The API's database login can't read other organisations, so it finds the organisation through a single
+  database function (`tenant_for_entra`) that answers only that question.
+
 ## Production guard
 
 With `APP_ENV=production` the API refuses to start, naming every problem, if:
 
-- `AUTH_MODE=dev` (anyone could act as anyone),
+- `AUTH_MODE=dev` (anyone could act as anyone), or `AUTH_MODE=oidc` without `ENTRA_CLIENT_ID` and `ENTRA_TENANT_ID`,
 - `DATABASE_URL` still has a development password,
 - `EVIDENCE_STORE=local` (evidence on a container disk).
 
@@ -69,7 +128,7 @@ With `APP_ENV=production` the API refuses to start, naming every problem, if:
 
 The compose file is a complete single-host deployment for demos and internal testing. A production pilot also needs:
 
-1. **Single sign-on.** `AUTH_MODE=oidc` with `verify_oidc_token` wired to the bank's Entra ID tenant (app registration, group-to-role mapping).
+1. **Single sign-on.** Done: Microsoft Entra ID, see below. Still to add before go-live: break-glass access for an identity-provider outage (roadmap R1.3).
 2. **Secrets.** Database passwords and the Anthropic key from the bank's vault, not a `.env` file.
 3. **TLS.** A reverse proxy or ingress in front of `web` (the API is reached only through the web app). Uvicorn runs with `--proxy-headers`.
 4. **Managed PostgreSQL** with automated backups, point-in-time recovery and a tested restore. Back up the evidence store with the same retention.

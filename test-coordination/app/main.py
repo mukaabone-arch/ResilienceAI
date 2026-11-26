@@ -43,15 +43,26 @@ def dev_directory():
     """Exists only with AUTH_MODE=dev. Lets the web app offer 'act as' without an IdP."""
     from sqlalchemy import text
 
-    from .config import settings
+    from . import config
     from .db import worker_engine
-    if settings.auth_mode != "dev":
+    if config.settings.auth_mode != "dev":
         return JSONResponse(status_code=404, content={"error": "Not found", "details": []})
     with worker_engine().connect() as c:
         tenants = [dict(r) for r in c.execute(text("SELECT id, code, name FROM tenants ORDER BY code")).mappings()]
         users = [dict(r) for r in c.execute(text(
             "SELECT tenant_id, idp_subject, display_name, roles, department FROM users WHERE is_active ORDER BY display_name")).mappings()]
     return {"tenants": tenants, "users": users}
+
+
+@app.get("/api/v1/auth/config", tags=["auth"], summary="How the web app should sign people in (public)")
+def auth_config():
+    from . import config
+    s = config.settings
+    if s.auth_mode != "oidc":
+        return {"mode": "dev"}
+    return {"mode": "oidc", "provider": "entra", "client_id": s.entra_client_id,
+            "authority": f"{s.entra_authority_host.rstrip('/')}/{s.entra_tenant_id or 'organizations'}",
+            "scopes": [s.entra_api_scope]}
 
 
 @app.get("/health", tags=["ops"], summary="Liveness: the process is up")

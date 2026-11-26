@@ -19,14 +19,14 @@ python -m scripts.demo                # optional: reset and load a demo portfoli
 uvicorn app.main:app --reload         # OpenAPI docs at http://localhost:8000/docs
 ```
 
-Dev authentication (`AUTH_MODE=dev`, the default) uses the headers `X-Tenant-Id: <printed by seed>` and `X-User-Subject: arjun.pm`. Seeded subjects: `arjun.pm` (programme manager), `meera.tm` (test manager), `vikram.owner`, `rahul.dba`, `farah.biz` (business owner), `rohan.risk`, `leela.cio`, `ext.vendor`, `audit.ia`, and others; see `scripts/seed.py`. **Production must use `AUTH_MODE=oidc`** with `verify_oidc_token` wired to Entra ID.
+Dev authentication (`AUTH_MODE=dev`, the default) uses the headers `X-Tenant-Id: <printed by seed>` and `X-User-Subject: arjun.pm`. Seeded subjects: `arjun.pm` (programme manager), `meera.tm` (test manager), `vikram.owner`, `rahul.dba`, `farah.biz` (business owner), `rohan.risk`, `leela.cio`, `ext.vendor`, `audit.ia`, and others; see `scripts/seed.py`. **Production uses `AUTH_MODE=oidc`** (Microsoft Entra ID sign-in; setup in [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md#microsoft-entra-id-sign-in), admin commands in `scripts/entra.py`).
 
 An existing database created before `scripts.migrate` existed needs `python -m scripts.migrate --baseline` once (or rerun `scripts.demo`). Deployment with Docker: [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
 ## Tests
 
 ```bash
-pytest -q        # 59 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
+pytest -q        # 74 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
 ```
 
 `tests/test_journey.py::test_core_banking_journey` walks the spec §31 demo end to end: programme → template → event → plan approval → stakeholders and acknowledgements → blocked DB prerequisite → readiness gate refuses go → evidence reject/resubmit → readiness exception → go decision → live (announcements, pause/resume) → RTO/RPO capture → findings → closure checklist → sign-offs → frozen closure report → audit-chain verification. Other tests cover QA-04/05/07/13/14/15 and transaction rollback.
