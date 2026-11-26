@@ -311,6 +311,29 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .task-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
+/* ---------- One-tap acknowledgement ---------- */
+.ack-page { max-width: 620px; margin: 24px auto 0; }
+.ack-card { padding: 28px 30px; }
+.ack-top { display: flex; align-items: center; gap: 10px; }
+.ack-card h1 { font-size: var(--t-xl); margin-top: 12px; }
+.ack-test { font-size: var(--t-lg); font-weight: 600; color: var(--ink-2); margin-top: 2px; }
+.ack-facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; margin: 20px 0 0; font-size: var(--t-sm); }
+.ack-facts div { display: contents; }
+.ack-facts dt { color: var(--ink-3); }
+.ack-facts dd { margin: 0; font-weight: 600; }
+.blocked-text { color: var(--blocked); }
+.ack-actions { display: flex; gap: 10px; margin-top: 26px; flex-wrap: wrap; }
+.ack-go { padding: 11px 26px; font-size: var(--t-md); }
+.ack-done { margin-top: 24px; padding: 12px 14px; border-radius: var(--r-control); background: var(--ready-tint); color: #1f5536; }
+.ack-done.declined { background: var(--waiting-tint); color: #6b4004; }
+@media (max-width: 640px) {
+  .ack-page { margin-top: 4px; }
+  .ack-card { padding: 20px 18px; }
+  .ack-facts { grid-template-columns: 1fr; gap: 2px; }
+  .ack-facts dd { margin-bottom: 8px; }
+  .ack-actions .btn { flex: 1; }
+}
+
 /* ---------- Sign-in ---------- */
 .signin { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
 .signin-side { background: var(--night); color: #dfe5ee; padding: 48px 48px 72px; border-right: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; justify-content: space-between; }
@@ -380,7 +403,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 @media (max-width: 960px) {
   /* minmax(0, …): a column must never grow to fit its widest child; wide things scroll inside themselves. */
-  .shell { grid-template-columns: minmax(0, 1fr); background: var(--ground); }
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; background: var(--ground); }
   /* Compact header: brand and person on one row, sections as a swipeable strip under them. */
   .rail { position: sticky; top: 0; z-index: 20; height: auto; display: grid; grid-template-columns: minmax(0, 1fr) auto;
     align-items: center; gap: 8px 12px; padding: 10px 16px 0; border-right: none; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
