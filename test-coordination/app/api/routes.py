@@ -281,6 +281,12 @@ def replace(stakeholder_id: UUID, data: sc.ReplaceIn, ctx: Ctx = D):
     return people.replace_stakeholder(ctx, stakeholder_id, data.new_user_id, data.reason)
 
 
+@router.get("/acknowledgements/{ack_id}", tags=["communications"],
+            summary="One acknowledgement request, for the person it was sent to (the one-tap page)")
+def get_acknowledgement(ack_id: UUID, ctx: Ctx = D):
+    return people.acknowledgement_detail(ctx, ack_id)
+
+
 @router.post("/acknowledgements/{ack_id}", tags=["communications"])
 def acknowledge(ack_id: UUID, data: sc.RespondIn, ctx: Ctx = D):
     return people.acknowledge(ctx, ack_id, data.accept, data.comment)

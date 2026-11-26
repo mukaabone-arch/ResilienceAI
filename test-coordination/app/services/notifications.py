@@ -18,7 +18,7 @@ from uuid import UUID
 from sqlalchemy import and_, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from ..config import settings
+from .. import config
 from ..db import t, tenant_transaction
 from ..security import Ctx
 
@@ -61,7 +61,7 @@ def enqueue(ctx: Ctx, trigger: str, *, event: dict, recipients: list[UUID], subj
     if comm_id is None:
         return None  # already enqueued for this business event
 
-    link = f"{settings.portal_base_url}/events/{event['id']}" + (f"/activities/{activity_id}" if activity_id else "")
+    link = f"{config.settings.portal_base_url.rstrip('/')}/tests/{event['id']}" + ("?tab=activities" if activity_id else "")
     for r in recipients:
         # Portal is always on; other channels honour user preference unless Critical/Escalation.
         mine = prefs.get(r, set())
@@ -78,7 +78,7 @@ def enqueue(ctx: Ctx, trigger: str, *, event: dict, recipients: list[UUID], subj
                          "starts_at": str(event.get("planned_start_at")),
                          "ends_at": str(event.get("planned_end_at"))}))
     if requires_ack:
-        due = datetime.now(timezone.utc) + timedelta(hours=settings.ack_sla_hours)
+        due = datetime.now(timezone.utc) + timedelta(hours=config.settings.ack_sla_hours)
         for r in recipients:
             ctx.conn.execute(insert(t("test_acknowledgements")).values(
                 tenant_id=ctx.me.tenant_id, communication_id=comm_id, recipient_user_id=r,
@@ -104,14 +104,38 @@ class SimulatedAdapter:
         return f"sim-{channel.lower()}-{abs(hash(idempotency_key)) % 10**10}"
 
 
-# Production adapters (Graph API mail/Teams/calendar, SMTP, ITSM) run through
-# the bank-controlled integration gateway and implement the same interface.
+# Explicit overrides (tests); otherwise NOTIFY_MODE picks simulated or Microsoft 365 adapters (app/services/m365.py).
 ADAPTERS: dict[str, ChannelAdapter] = {}
 _default = SimulatedAdapter()
 
 
 def adapter_for(channel: str) -> ChannelAdapter:
-    return ADAPTERS.get(channel, _default)
+    if channel in ADAPTERS:
+        return ADAPTERS[channel]
+    if config.settings.notify_mode == "m365":
+        from . import m365
+        return m365.adapter(channel)
+    return _default
+
+
+def _enrich(conn, job: dict) -> dict:
+    """What a channel needs beyond the stored payload: the one-tap acknowledgement link, and for calendar
+    invitations the provider id of the invitation already sent to this person (so a change updates it)."""
+    payload = dict(job["payload"])
+    ack = t("test_acknowledgements")
+    ack_id = conn.execute(select(ack.c.id).where(and_(
+        ack.c.communication_id == job["communication_id"], ack.c.recipient_user_id == job["recipient_user_id"],
+        ack.c.status == "Pending"))).scalar()
+    if ack_id:
+        payload["ack_url"] = f"{config.settings.portal_base_url.rstrip('/')}/acknowledge/{ack_id}"
+    if job["channel"] == "Outlook" and payload.get("ical_uid"):
+        nj = t("notification_jobs")
+        payload["previous_provider_id"] = conn.execute(
+            select(nj.c.provider_message_id).where(and_(
+                nj.c.recipient_user_id == job["recipient_user_id"], nj.c.channel == "Outlook",
+                nj.c.delivery_status == "Sent", nj.c.payload["ical_uid"].astext == payload["ical_uid"],
+                nj.c.id != job["id"])).order_by(nj.c.sent_at.desc()).limit(1)).scalar()
+    return payload
 
 
 @dataclass
@@ -130,18 +154,19 @@ def dispatch_due(tenant_id: UUID, now: datetime | None = None, batch: int = 100)
             select(nj).where(and_(nj.c.delivery_status.in_(["Queued", "Failed"]), nj.c.next_attempt_at <= now))
             .order_by(nj.c.created_at).limit(batch).with_for_update(skip_locked=True)).mappings().all()
         for j in jobs:
-            rec = conn.execute(select(u.c.id, u.c.email, u.c.display_name).where(u.c.id == j["recipient_user_id"])).mappings().one()
+            rec = conn.execute(select(u.c.id, u.c.email, u.c.display_name, u.c.idp_subject, u.c.idp_bound_at)
+                               .where(u.c.id == j["recipient_user_id"])).mappings().one()
             attempts = j["attempts"] + 1
             try:
                 if j["channel"] == "Portal":
                     msg_id = f"portal-{j['id']}"   # in-app inbox reads communications directly
                 else:
-                    msg_id = adapter_for(j["channel"]).send(j["channel"], dict(rec), j["payload"], j["idempotency_key"])
+                    msg_id = adapter_for(j["channel"]).send(j["channel"], dict(rec), _enrich(conn, j), j["idempotency_key"])
                 conn.execute(update(nj).where(nj.c.id == j["id"]).values(
                     delivery_status="Sent", attempts=attempts, provider_message_id=msg_id, sent_at=now, last_error=None))
                 out.sent += 1
             except Exception as e:  # noqa: BLE001 - adapter boundary
-                dead = attempts >= settings.notification_max_attempts
+                dead = attempts >= config.settings.notification_max_attempts
                 conn.execute(update(nj).where(nj.c.id == j["id"]).values(
                     delivery_status="Dead" if dead else "Failed", attempts=attempts,
                     last_error=str(e)[:1000], next_attempt_at=now + timedelta(seconds=30 * 2 ** attempts)))

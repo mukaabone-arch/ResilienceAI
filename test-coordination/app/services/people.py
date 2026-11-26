@@ -126,14 +126,32 @@ def acknowledge(ctx: Ctx, ack_id: UUID, accept: bool, comment: str | None) -> di
     r = row(ctx, "test_acknowledgements", ack_id, for_update=True)
     if r["recipient_user_id"] != ctx.me.user_id:
         raise Forbidden("Not your acknowledgement")
+    if r["status"] != "Pending":       # a second tap on the same link, or an old message
+        raise Conflict(f"Already {r['status'].lower()}")
     if r["stakeholder_id"]:
         respond_to_assignment(ctx, r["stakeholder_id"], accept, comment)
         return row(ctx, "test_acknowledgements", ack_id)
-    if r["status"] != "Pending":
-        raise Conflict(f"Already {r['status']}")
     return dict(ctx.conn.execute(update(a).where(a.c.id == ack_id).values(
         status="Acknowledged" if accept else "Declined", responded_at=now(), response_comment=comment)
         .returning(a)).mappings().one())
+
+
+def acknowledgement_detail(ctx: Ctx, ack_id: UUID) -> dict:
+    """What the one-tap acknowledgement page shows. Only the person asked can open it."""
+    r = row(ctx, "test_acknowledgements", ack_id)
+    if r["recipient_user_id"] != ctx.me.user_id:
+        raise Forbidden("This acknowledgement is for someone else. Sign in with the account the message was sent to.")
+    c = row(ctx, "test_communications", r["communication_id"])
+    ev = event(ctx, c["event_id"])
+    st = row(ctx, "test_stakeholders", r["stakeholder_id"]) if r["stakeholder_id"] else None
+    return {
+        "id": r["id"], "status": r["status"], "due_at": r["due_at"], "responded_at": r["responded_at"],
+        "response_comment": r["response_comment"], "subject": c["subject"], "communication_type": c["communication_type"],
+        "event": {k: ev[k] for k in ("id", "event_code", "title", "lifecycle_status", "planned_start_at",
+                                     "planned_end_at", "timezone", "criticality")},
+        "assignment": {"event_role": st["event_role"], "responsibility": st["responsibility"],
+                       "is_active": st["is_active"]} if st else None,
+    }
 
 
 def replace_stakeholder(ctx: Ctx, stakeholder_id: UUID, new_user_id: UUID, reason: str) -> dict:
