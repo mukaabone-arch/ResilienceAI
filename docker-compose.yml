@@ -9,6 +9,9 @@
 x-api-env: &api-env
   APP_ENV: ${APP_ENV:-development}
   AUTH_MODE: ${AUTH_MODE:-dev}
+  ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+  ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+  ENTRA_ROLES_FROM_TOKEN: ${ENTRA_ROLES_FROM_TOKEN:-true}
   DATABASE_URL: postgresql+psycopg://app_user:${APP_DB_PASSWORD}@db:5432/resilience
   WORKER_DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@db:5432/resilience
   EVIDENCE_STORE: ${EVIDENCE_STORE:-local}

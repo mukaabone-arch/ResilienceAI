@@ -10,8 +10,22 @@ class Settings:
     # Worker role with BYPASSRLS, used only to enumerate tenants for background jobs.
     worker_database_url: str = os.getenv(
         "WORKER_DATABASE_URL", "postgresql+psycopg://postgres@/resilience?host=/tmp")
-    # "dev" accepts X-Tenant-Id / X-User-Subject headers. "oidc" requires a verifier (see security.py).
+    # "dev" accepts X-Tenant-Id / X-User-Subject headers. "oidc" accepts Microsoft Entra ID access tokens.
     auth_mode: str = os.getenv("AUTH_MODE", "dev")
+    # Microsoft Entra ID (AUTH_MODE=oidc). One app registration: a single-page app that also exposes the API.
+    # ENTRA_TENANT_ID is the directory people sign in to, or "organizations" to allow several banks' directories.
+    entra_tenant_id: str = os.getenv("ENTRA_TENANT_ID", "")
+    entra_client_id: str = os.getenv("ENTRA_CLIENT_ID", "")
+    # Access tokens must be issued for this API (v2 tokens carry the app's client id as the audience).
+    entra_api_audience: str = os.getenv("ENTRA_API_AUDIENCE", "")
+    entra_api_scope_name: str = os.getenv("ENTRA_API_SCOPE_NAME", "access_as_user")
+    entra_authority_host: str = os.getenv("ENTRA_AUTHORITY_HOST", "https://login.microsoftonline.com")
+    entra_jwks_url: str = os.getenv("ENTRA_JWKS_URL", "https://login.microsoftonline.com/common/discovery/v2.0/keys")
+    entra_issuer_template: str = os.getenv("ENTRA_ISSUER_TEMPLATE", "https://login.microsoftonline.com/{tid}/v2.0")
+    # Roles: when the token carries Entra app roles, they replace the stored roles at each sign-in.
+    entra_roles_from_token: bool = os.getenv("ENTRA_ROLES_FROM_TOKEN", "true").lower() == "true"
+    # First sign-in: link a person provisioned by email to their Entra account.
+    entra_bind_by_email: bool = os.getenv("ENTRA_BIND_BY_EMAIL", "true").lower() == "true"
     # "production" refuses to start with development-only settings (see check_production()).
     app_env: str = os.getenv("APP_ENV", "development")
     ack_sla_hours: int = int(os.getenv("ACK_SLA_HOURS", "48"))
@@ -29,6 +43,16 @@ class Settings:
     ai_timeout_s: float = float(os.getenv("AI_TIMEOUT_S", "20"))
 
 
+    @property
+    def entra_audiences(self) -> list[str]:
+        aud = self.entra_api_audience or self.entra_client_id
+        return [a for a in {aud, f"api://{aud}"} if a and a != "api://"]
+
+    @property
+    def entra_api_scope(self) -> str:
+        return f"api://{self.entra_client_id}/{self.entra_api_scope_name}"
+
+
 settings = Settings()
 
 
@@ -41,6 +65,8 @@ def check_production(s: Settings = settings) -> list[str]:
         problems.append("AUTH_MODE=dev lets anyone act as anyone; production needs AUTH_MODE=oidc")
     if ":app@" in s.database_url or "postgres:postgres@" in s.database_url:
         problems.append("DATABASE_URL uses the development password")
+    if s.auth_mode == "oidc" and not (s.entra_client_id and s.entra_tenant_id):
+        problems.append("AUTH_MODE=oidc needs ENTRA_CLIENT_ID and ENTRA_TENANT_ID")
     if s.evidence_store == "local":
         problems.append("EVIDENCE_STORE=local keeps evidence on the container's disk; use encrypted object storage")
     return problems
