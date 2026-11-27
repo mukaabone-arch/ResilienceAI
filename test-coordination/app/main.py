@@ -65,6 +65,23 @@ def auth_config():
             "scopes": [s.entra_api_scope]}
 
 
+@app.get("/health/deep", tags=["ops"], summary="Monitoring: worker, delivery, scanning, audit verification (token)")
+def health_deep(request: Request):
+    import hmac
+
+    from . import config
+    from .services import ops
+    token = config.settings.monitoring_token
+    given = request.headers.get("x-monitoring-token", "")
+    if not token:
+        return JSONResponse(status_code=404, content={"error": "Set MONITORING_TOKEN to turn on deep health checks"})
+    if not hmac.compare_digest(given.encode(), token.encode()):
+        return JSONResponse(status_code=401, content={"error": "Monitoring token required"})
+    report = ops.deep_status()
+    from fastapi.encoders import jsonable_encoder
+    return JSONResponse(status_code=503 if report["status"] == "fail" else 200, content=jsonable_encoder(report))
+
+
 @app.get("/health", tags=["ops"], summary="Liveness: the process is up")
 def health():
     return {"status": "ok"}

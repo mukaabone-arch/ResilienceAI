@@ -65,6 +65,8 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `GRAPH_SENDER` | worker | none | Mailbox ResilienceAI sends mail and invitations from, e.g. `resilience@bank.example` |
 | `TEAMS_WEBHOOK_URL` | worker | none | Teams Workflows webhook URL; leave empty to send mail only |
 | `ACK_SLA_HOURS`, `NOTIFICATION_MAX_ATTEMPTS` | worker | `48`, `5` | |
+| `MONITORING_TOKEN` | api | none | Turns on `GET /health/deep` for monitoring tools (header `X-Monitoring-Token`); from the vault |
+| `AUDIT_VERIFY_HOURS` | worker | `24` | How often the worker re-verifies each organisation's audit trail |
 | `API_URL` | web build | `http://api:8000` | Build argument: Next.js fixes rewrites at build time |
 
 ## Microsoft Entra ID sign-in
@@ -299,7 +301,38 @@ The compose file is a complete single-host deployment for demos and internal tes
 5. **Evidence storage.** Done: S3-compatible storage with encryption, Object Lock retention and legal hold, and ClamAV scanning (see above). Still to agree with the bank: the retention period and the KMS key.
 6. **Worker scheduling.** One worker replica (or `python -m scripts.worker --once` from a scheduler every minute). The live-summary slot index makes duplicates harmless, but notifications are delivered by whichever worker claims them.
 7. **Assistant.** Keep `AI_PROVIDER=rules` until the bank approves sending pseudonymised text to the Claude API; every suggestion is logged in `ai_activity_records` either way.
-8. **Monitoring.** Container logs to the bank's SIEM; alerts on `/ready`, failed notification jobs and audit-chain verification.
+8. **Monitoring.** Done in the app: `/health/deep` and the System health panel (see "Monitoring"). Still to set up
+   with the bank: container logs to the SIEM, and alerts wired to `/health/deep`.
+
+## Monitoring
+
+| Endpoint | For | Answers |
+|---|---|---|
+| `GET /health` | Liveness probe | The process is up |
+| `GET /ready` | Load balancer | 503 until the database answers and the evidence store is set up |
+| `GET /health/deep` | Monitoring and alerting (header `X-Monitoring-Token`) | Overall `ok`, `warn` or `fail` with each check; **503 on `fail`** |
+
+The worker records a heartbeat on every pass and re-verifies each organisation's hash-chained audit trail every
+`AUDIT_VERIFY_HOURS` (streamed in batches, so large trails are fine). `/health/deep` reads those, so the API never
+reads across organisations:
+
+| Check | `fail` (page someone) | `warn` (look today) |
+|---|---|---|
+| Database, evidence store | Unreachable, or the bucket isn't locked | |
+| Background worker | No pass for 5 minutes | |
+| Audit trail | A record doesn't verify (it names the organisation and the first bad record) | Not verified yet, or overdue |
+| Notifications | | Any gave up in 24 hours, or any waiting over 15 minutes |
+| Malware scanning | | Files waiting over 30 minutes, or scan errors |
+| Break-glass | | A session is open or waiting for approval |
+| AI features (when on) | | Answers fell back to rules in 24 hours |
+
+Suggested alerts: page on HTTP 503 from `/health/deep`; ticket on `"status": "warn"`. A broken audit trail is also
+logged at ERROR by the worker. Administrators, risk and audit see the same report as **System health** on the
+Reports page (`GET /api/v1/ops/status`).
+
+```bash
+curl -s -H "X-Monitoring-Token: $MONITORING_TOKEN" https://resilience.bank.example/health/deep
+```
 
 ## Continuous integration
 
