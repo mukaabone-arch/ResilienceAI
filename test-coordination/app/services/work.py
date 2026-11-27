@@ -608,6 +608,11 @@ def record_approval(ctx: Ctx, event_id: UUID, data: dict) -> dict:
         event_version=ev["version"], readiness_snapshot=snapshot, policy_version=authz.POLICY_VERSION,
     ).returning(ap)).mappings().one())
     audit.record(ctx, "approval.recorded", "Approval", out["id"], event_id=event_id, new=out)
+    if kind == AT.GO_NO_GO:
+        from . import decisions
+        rec = decisions.seal(ctx, ev, out, data.get("present_user_ids"),
+                             [dict(d) for d in data.get("dissents") or []])
+        out = {**out, "decision_record_id": rec["id"], "decision_record_sha256": rec["content_sha256"]}
     label = {"Go/No-go": "Go/no-go", "ReadinessException": "Readiness exception", "RiskReview": "Risk review",
              "Business": "Business sign-off", "Closure": "Closure approval", "Resume": "Resume"}.get(kind.value, kind.value)
     log(ctx, event_id, "Decision", f"{label}: {decision.lower()} by {ctx.me.display_name}"
