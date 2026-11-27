@@ -300,3 +300,14 @@ class PrecheckFeedbackIn(Model):
     key: str = Field(max_length=40)
     verdict: Literal["wrong", "right"]
     note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class LessonApplyIn(Model):
+    title: Optional[str] = Field(default=None, max_length=250)
+    owner_user_id: Optional[UUID] = None
+    is_mandatory: bool = True
+    evidence_required: bool = False
+
+
+class LessonDismissIn(Model):
+    reason: str = Field(min_length=1, max_length=2000)

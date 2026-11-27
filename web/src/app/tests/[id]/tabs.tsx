@@ -7,6 +7,7 @@ import { AssistantCards, MessageDrafts } from "@/components/Assistant";
 import { GoDecision, GoDecisionDialog } from "@/components/Decisions";
 import { DependencyMap } from "@/components/DependencyMap";
 import { useEvidenceUpload } from "@/components/EvidenceUpload";
+import { LessonsPanel } from "@/components/Lessons";
 import { PrecheckDetails, PrecheckLine, openWarnings, type Finding } from "@/components/Precheck";
 import { ReadinessGate } from "@/components/ReadinessGate";
 import { ErrorNotice, Loading, Panel, Pill, useAction, useDialog } from "@/components/ui";
@@ -23,7 +24,7 @@ function canApproveGo({ ev, me, isPM }: Ctx) {
 
 /* ------------------------------------------------------------------ Overview */
 export function OverviewTab(ctx: Ctx) {
-  const { ev } = ctx;
+  const { ev, me } = ctx;
   const { data: rd } = useApi<any>(`/test-events/${ev.id}/readiness`);
   const { data: tl } = useApi<any[]>(`/test-events/${ev.id}/timeline`);
   const counts = ev.activity_counts as Record<string, number>;
@@ -37,6 +38,7 @@ export function OverviewTab(ctx: Ctx) {
         {rd ? <Link href={`/tests/${ev.id}?tab=readiness`} style={{ textDecoration: "none" }}>
           <ReadinessGate summary={rd} lifecycle={ev.lifecycle_status} compact />
         </Link> : <Loading />}
+        {!me.is_external && <LessonsPanel eventId={ev.id} onChanged={ctx.reloadEvent} />}
         <Panel title="Recent activity" action={<Link className="btn quiet" href={`/tests/${ev.id}?tab=timeline`}>Full timeline</Link>} flush>
           {!recent.length && <p className="panel-empty">Nothing has happened yet.</p>}
           <ul className="timeline">

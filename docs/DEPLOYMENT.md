@@ -258,6 +258,24 @@ How it stays safe:
 Images can't be read here (no OCR); they get a note asking the reviewer to check them by eye.
 `EVIDENCE_PRECHECK=off` turns the feature off.
 
+## Lessons from earlier tests
+
+Nothing to configure: migration `009_lessons` adds the table that records what planners decide. When a test is
+opened, its Overview tab lists lessons from related earlier tests: earlier runs of the same series or template, and
+tests that covered the same business services (category alone counts only for closed tests). Lessons are worked
+out from what those tests already recorded:
+
+- remediation still open from their findings (overdue first)
+- activities that were blocked, for how long and why (from the audit trail), flagged when the same activity is
+  blocked again now
+- missed RTO / RPO targets, activities that overran their due time, evidence that reviewers sent back
+- findings and incidents, with their root cause
+
+Each lesson is matched to the activity it concerns in this test (same code and similar title, or a clearly similar
+title), grouped when it happened in more than one earlier test, and links to the records it came from. While the test
+is being planned, its manager can add a lesson as a readiness condition (it then counts towards the go decision and
+shows *Learned from …*) or set it aside with a reason. External users don't see lessons. No external model is used.
+
 ## Production guard
 
 With `APP_ENV=production` the API refuses to start, naming every problem, if:

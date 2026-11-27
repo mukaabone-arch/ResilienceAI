@@ -32,7 +32,8 @@ function Mark({ kind }: { kind: "met" | "unmet" | "excepted" | "optional" }) {
   );
 }
 
-export type GateItem = { id: string; title: string; status: string; is_mandatory: boolean; evidence_required: boolean; confirmed_at?: string; owner_user_id?: string };
+export type GateItem = { id: string; title: string; status: string; is_mandatory: boolean; evidence_required: boolean; confirmed_at?: string; owner_user_id?: string;
+  from_lesson?: { event_code: string; event_id: string; title: string } | null };
 
 export function ReadinessGate({ summary, lifecycle, compact = false, renderItemAction }: {
   summary: any; lifecycle: string; compact?: boolean; renderItemAction?: (item: GateItem, state: string) => React.ReactNode;
@@ -98,6 +99,7 @@ export function ReadinessGate({ summary, lifecycle, compact = false, renderItemA
                 <div>
                   <div className="t">{i.title}</div>
                   <div className="why">{why}{i.evidence_required && s === "unmet" ? ", evidence required" : ""}</div>
+                  {i.from_lesson && <div className="learned" title={i.from_lesson.title}>Learned from {i.from_lesson.event_code}</div>}
                 </div>
                 <div>{renderItemAction?.(i, s)}</div>
               </li>

@@ -330,6 +330,10 @@ def readiness_summary(ctx: Ctx, event_id: UUID) -> dict:
         .order_by(ap.c.decided_at.desc())).mappings()]
     blockers = [dict(x) for x in ctx.conn.execute(select(i).where(and_(
         i.c.event_id == event_id, i.c.issue_type == "Blocker", i.c.status.in_(["Open", "In Progress"])))).mappings()]
+    from .lessons import lessons_for_items
+    learned = lessons_for_items(ctx, [x["id"] for x in items])
+    for x in items:
+        x["from_lesson"] = learned.get(x["id"])
     return {"gate": gate.__dict__, "items": items, "dependency_summary": deps["summary"],
             "blocked_activities": [n for n in deps["nodes"] if n["dependency_state"] == "blocked"],
             "overdue_activities": [n for n in deps["nodes"] if n["is_overdue"]],
