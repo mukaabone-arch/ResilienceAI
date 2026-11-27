@@ -31,6 +31,15 @@ class Settings:
     ack_sla_hours: int = int(os.getenv("ACK_SLA_HOURS", "48"))
     notification_max_attempts: int = int(os.getenv("NOTIFICATION_MAX_ATTEMPTS", "5"))
     portal_base_url: str = os.getenv("PORTAL_BASE_URL", "https://resilience.example.com")
+    # Notifications. "simulated" records deliveries without sending. "m365" sends Outlook mail and calendar invites
+    # through Microsoft Graph (app-only) and Teams messages through a Teams Workflows webhook.
+    notify_mode: str = os.getenv("NOTIFY_MODE", "simulated")
+    graph_tenant_id: str = os.getenv("GRAPH_TENANT_ID", os.getenv("ENTRA_TENANT_ID", ""))
+    graph_client_id: str = os.getenv("GRAPH_CLIENT_ID", "")
+    graph_client_secret: str = os.getenv("GRAPH_CLIENT_SECRET", "")
+    graph_sender: str = os.getenv("GRAPH_SENDER", "")            # mailbox ResilienceAI sends from, e.g. resilience@bank.example
+    graph_base_url: str = os.getenv("GRAPH_BASE_URL", "https://graph.microsoft.com/v1.0")
+    teams_webhook_url: str = os.getenv("TEAMS_WEBHOOK_URL", "")   # Teams Workflows "when a webhook request is received"
     # Evidence files. "local" keeps them on disk for development; production uses encrypted object storage.
     evidence_store: str = os.getenv("EVIDENCE_STORE", "local")
     evidence_dir: str = os.getenv("EVIDENCE_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "evidence-store"))
@@ -67,6 +76,8 @@ def check_production(s: Settings = settings) -> list[str]:
         problems.append("DATABASE_URL uses the development password")
     if s.auth_mode == "oidc" and not (s.entra_client_id and s.entra_tenant_id):
         problems.append("AUTH_MODE=oidc needs ENTRA_CLIENT_ID and ENTRA_TENANT_ID")
+    if s.notify_mode == "m365" and not (s.graph_tenant_id and s.graph_client_id and s.graph_client_secret and s.graph_sender):
+        problems.append("NOTIFY_MODE=m365 needs GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET and GRAPH_SENDER")
     if s.evidence_store == "local":
         problems.append("EVIDENCE_STORE=local keeps evidence on the container's disk; use encrypted object storage")
     return problems

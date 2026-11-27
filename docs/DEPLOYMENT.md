@@ -55,7 +55,11 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `EVIDENCE_MAX_MB` | api | `25` | Keep in step with the web proxy limit (30 MB) |
 | `AI_PROVIDER` | api, worker | `rules` | `anthropic` lets Claude reword suggestions; facts and fallback stay rule-based |
 | `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_S` | api, worker | empty, `claude-sonnet-5-5`, `20` | Only with `AI_PROVIDER=anthropic` |
-| `PORTAL_BASE_URL` | worker | | Links in notifications |
+| `PORTAL_BASE_URL` | worker | | The address people open ResilienceAI at; every link and Acknowledge button uses it |
+| `NOTIFY_MODE` | worker | `simulated` | `m365` sends through Outlook (Graph) and Teams (Workflows webhook) |
+| `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | worker | `ENTRA_TENANT_ID`, none, none | App-only Microsoft Graph credentials (a separate app registration; secret from the vault) |
+| `GRAPH_SENDER` | worker | none | Mailbox ResilienceAI sends mail and invitations from, e.g. `resilience@bank.example` |
+| `TEAMS_WEBHOOK_URL` | worker | none | Teams Workflows webhook URL; leave empty to send mail only |
 | `ACK_SLA_HOURS`, `NOTIFICATION_MAX_ATTEMPTS` | worker | `48`, `5` | |
 | `API_URL` | web build | `http://api:8000` | Build argument: Next.js fixes rewrites at build time |
 
@@ -114,13 +118,70 @@ administrator; nothing is created for them automatically.
 - The API's database login can't read other organisations, so it finds the organisation through a single
   database function (`tenant_for_entra`) that answers only that question.
 
+## Teams and Outlook notifications
+
+ResilienceAI already writes every notification to an outbox in the same transaction as the change that caused it,
+one job per person and channel, delivered by the worker with retries. With `NOTIFY_MODE=m365` the worker sends:
+
+| Channel | What arrives | How |
+|---|---|---|
+| Email | An Outlook message with an **Acknowledge** button when a response is needed | Graph `sendMail` from `GRAPH_SENDER` |
+| Outlook | A calendar invitation for the test window; a reschedule updates the same invitation | Graph event in the sender mailbox's calendar, the person as attendee |
+| Teams | An Adaptive Card that @mentions the person, with the same **Acknowledge** button | Teams Workflows webhook |
+
+**Acknowledge** opens a one-tap page (`/acknowledge/<id>`): the person signs in (silently, with Entra), sees the
+test, their role and the window, and presses Acknowledge or *I can't do this* (with a reason, which notifies the test
+manager). Opening the link changes nothing, because mail security scanners open links too. Only the person the
+message was sent to can respond.
+
+### 1. Microsoft Graph app (Entra admin centre)
+
+1. Create a second app registration, e.g. *ResilienceAI Notifications* (keep it separate from the sign-in app).
+2. **Certificates & secrets:** add a client secret, store it in the vault, pass it as `GRAPH_CLIENT_SECRET`.
+3. **API permissions → Microsoft Graph → Application:** `Mail.Send` and `Calendars.ReadWrite`; grant admin consent.
+4. **Limit it to one mailbox.** Application permissions apply to every mailbox until restricted. Create a mail-enabled
+   security group containing only the sender mailbox, then in Exchange Online PowerShell:
+   `New-ApplicationAccessPolicy -AppId <client id> -PolicyScopeGroupId <group> -AccessRight RestrictAccess -Description "ResilienceAI sender only"`
+   (or the newer RBAC for Applications in Exchange). Test with `Test-ApplicationAccessPolicy`.
+
+### 2. Teams Workflows (optional)
+
+In Teams, **Workflows → Create → "When a Teams webhook request is received"**, then add **Post card in a chat or
+channel**:
+- *Post as* Flow bot, *Post in* **Chat with Flow bot**, *Recipient* = `triggerBody()?['recipient']`. Each person
+  gets their own message. Or post in a **channel** (one per programme) if the bank prefers.
+- *Adaptive Card* = `triggerBody()?['attachments'][0]['content']`.
+
+Copy the webhook URL into `TEAMS_WEBHOOK_URL`. The request body is `{type, recipient, summary, attachments:[card]}`.
+If the URL is empty, Teams jobs are recorded as not configured and mail still goes out.
+
+**Upgrade path:** a registered Teams bot could take the acknowledgement inside Teams (Adaptive Card
+`Action.Execute`) without opening a page. That needs a Teams app approved by the bank and an inbound endpoint for
+Microsoft's Bot Service, so it's left for when the bank approves both.
+
+### 3. Turn it on
+
+```bash
+# .env
+NOTIFY_MODE=m365
+PORTAL_BASE_URL=https://resilience.bank.example
+GRAPH_CLIENT_ID=<notifications app client id>
+GRAPH_CLIENT_SECRET=<from the vault>
+GRAPH_SENDER=resilience@bank.example
+TEAMS_WEBHOOK_URL=<workflow URL>
+```
+
+Failed deliveries are retried with back-off up to `NOTIFICATION_MAX_ATTEMPTS`, then marked Dead with the error kept
+on the job. People's channel preferences are respected, except for escalations and critical messages.
+
 ## Production guard
 
 With `APP_ENV=production` the API refuses to start, naming every problem, if:
 
 - `AUTH_MODE=dev` (anyone could act as anyone), or `AUTH_MODE=oidc` without `ENTRA_CLIENT_ID` and `ENTRA_TENANT_ID`,
 - `DATABASE_URL` still has a development password,
-- `EVIDENCE_STORE=local` (evidence on a container disk).
+- `EVIDENCE_STORE=local` (evidence on a container disk),
+- `NOTIFY_MODE=m365` without the Graph credentials and sender.
 
 `GET /health` says the process is up; `GET /ready` returns 503 until the database answers. Point the load balancer at `/ready`.
 
