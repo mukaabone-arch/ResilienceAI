@@ -34,7 +34,7 @@ from . import evidence_checks as chk
 from .evidence_text import Extracted, extract
 from .provider import CODE, MAX_TOKENS, api_error, pseudonymise, reply_text, restore
 
-PROMPT_VERSION = "evidence-precheck-v1"
+PROMPT_VERSION = "evidence-precheck-v2"
 FEATURE = "evidence_precheck"
 RPO_WORDS = re.compile(r"(?i)\b(rpo|recovery point|backup|replicat\w*|snapshot|standby|data guard|apply lag|restore)\b")
 RTO_WORDS = re.compile(r"(?i)\b(rto|failover|switchover|recover\w*|restore|failback|cut ?over)\b")
@@ -193,6 +193,10 @@ SYSTEM = (
     '"shows": ["what the file demonstrates, up to 4 short points"], '
     '"missing": ["what a reviewer would expect for this activity but cannot find, up to 4 short points"], '
     '"citations": [{"line": <line number>, "quote": "a few words copied exactly from that line"}]}. '
+    "You are also given the test's recovery targets and the automatic checks already run on the file (dates, recovery "
+    "point and time against the targets, environment, duplicates, sensitive data). The reviewer sees those results "
+    "next to yours, so do not repeat them or list them as missing: 'missing' is only for what a careful reader of the "
+    "file would still want for this activity and that no automatic check covers. "
     "Rules: cite the lines your judgement rests on (1 to 5); quote them exactly; do not invent numbers, dates, systems "
     "or names; keep placeholders like 'Person A' and record codes exactly as written; never say the evidence should "
     "be accepted or rejected, that is the reviewer's decision."
@@ -223,6 +227,17 @@ def _excerpt(lines: list[str], findings: list[dict], terms: list[str], budget: i
     return out
 
 
+def _known(c: dict, findings: list[dict]) -> str:
+    """What the model is told is already established: the targets and the rule checks' results (titles only)."""
+    targets = [f"{k} {chk.human(v)}" for k, v in (("RTO", c["rto_s"]), ("RPO", c["rpo_s"])) if v is not None]
+    done = [f"- [{ {'ok': 'fine', 'warn': 'flagged', 'info': 'note'}[f['level']] }] {f['title']}"
+            for f in findings if f["key"] != "relevance" and not f.get("by")]
+    out = f"Recovery targets for this test: {'; '.join(targets) if targets else 'none set'}\n"
+    if done:
+        out += "Automatic checks already run on this file (shown to the reviewer; don't repeat them):\n" + "\n".join(done) + "\n"
+    return out
+
+
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
@@ -237,7 +252,7 @@ def model_pass(ctx: Ctx, c: dict, x: Extracted, findings: list[dict], transport=
     sent = {i + 1: chk.mask(x.lines[i]) for i in idx}
     block = "\n".join(f"L{n}: {txt[:400]}" for n, txt in sent.items())
     head = (f"{c['kind'].capitalize()}: {(c['code'] + ' ') if c['code'] else ''}{c['title']}\n"
-            f"Description: {c['description'] or '(none)'}\n")
+            f"Description: {c['description'] or '(none)'}\n" + _known(c, findings))
     safe, mapping = pseudonymise(head + "\nFile lines:\n" + block, names)
     try:
         with httpx.Client(timeout=config.settings.ai_timeout_s, transport=transport or TRANSPORT) as cl:

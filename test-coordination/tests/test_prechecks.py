@@ -385,3 +385,15 @@ def test_model_request_has_no_sampling_settings_and_errors_are_explained(as_, ev
         "content": [{"type": "thinking", "thinking": "..."}], "stop_reason": "max_tokens"}))
     pc = as_("meera.tm").post(f"/test-evidence/{r['id']}/precheck", expect=200).json()
     assert "ran out of room" in pc["fallback_reason"]
+
+
+def test_model_is_told_the_targets_and_what_the_rules_already_found(as_, ev, with_model):
+    seen: list = []
+    prechecks.TRANSPORT = _fake(json.dumps({"relevance": "unclear", "reason": "Too little to judge."}), seen)
+    r = up(as_("rahul.dba"), ev["a"]["id"], bad_log()).json()
+    as_("meera.tm").post(f"/test-evidence/{r['id']}/precheck", expect=200)
+    sent = seen[-1]["messages"][0]["content"]
+    assert "Recovery targets for this test: RTO 60 min; RPO 15 min" in sent
+    assert "[flagged] Recovery point about" in sent and "beyond the 15 min RPO target" in sent
+    assert "[flagged] Possible sensitive data" in sent and CARD not in sent
+    assert "don't repeat them" in sent and "do not repeat them" in seen[-1]["system"]
