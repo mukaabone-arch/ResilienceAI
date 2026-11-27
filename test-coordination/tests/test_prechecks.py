@@ -364,3 +364,24 @@ def test_precheck_failures_never_block_an_upload(as_, ev, monkeypatch):
     monkeypatch.setattr(prechecks, "rule_findings", boom)
     r = up(as_("rahul.dba"), ev["a"]["id"], good_log()).json()
     assert r["precheck"] is None and r["evidence_code"]
+
+
+def test_model_request_has_no_sampling_settings_and_errors_are_explained(as_, ev, with_model):
+    seen: list = []
+    prechecks.TRANSPORT = _fake(json.dumps({"relevance": "unclear", "reason": "Too little to judge."}), seen)
+    r = up(as_("rahul.dba"), ev["a"]["id"], good_log()).json()
+    as_("meera.tm").post(f"/test-evidence/{r['id']}/precheck", expect=200)
+    body = seen[-1]
+    assert not {"temperature", "top_p", "top_k"} & set(body) and body["max_tokens"] >= 4000   # newer models refuse them
+
+    def rejected(request):
+        return httpx.Response(400, json={"type": "error", "error": {"type": "invalid_request_error",
+                                                                   "message": "temperature is not supported"}})
+    prechecks.TRANSPORT = httpx.MockTransport(rejected)
+    pc = as_("meera.tm").post(f"/test-evidence/{r['id']}/precheck", expect=200).json()
+    assert pc["fallback_reason"] == "model call failed (400: invalid_request_error: temperature is not supported)"
+
+    prechecks.TRANSPORT = httpx.MockTransport(lambda req: httpx.Response(200, json={
+        "content": [{"type": "thinking", "thinking": "..."}], "stop_reason": "max_tokens"}))
+    pc = as_("meera.tm").post(f"/test-evidence/{r['id']}/precheck", expect=200).json()
+    assert "ran out of room" in pc["fallback_reason"]
