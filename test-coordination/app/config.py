@@ -107,6 +107,8 @@ def check_production(s: Settings = settings) -> list[str]:
         problems.append("DATABASE_URL uses the development password")
     if s.auth_mode == "oidc" and not (s.entra_client_id and s.entra_tenant_id):
         problems.append("AUTH_MODE=oidc needs ENTRA_CLIENT_ID and ENTRA_TENANT_ID")
+    if s.break_glass_on and not 15 <= s.break_glass_minutes <= 240:
+        problems.append("BREAK_GLASS_MINUTES must be between 15 and 240")
     if s.notify_mode == "m365" and not (s.graph_tenant_id and s.graph_client_id and s.graph_client_secret and s.graph_sender):
         problems.append("NOTIFY_MODE=m365 needs GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET and GRAPH_SENDER")
     if s.evidence_store == "local":
@@ -119,6 +121,4 @@ def check_production(s: Settings = settings) -> list[str]:
         problems.append("EVIDENCE_RETENTION_DAYS is 0, so evidence could be deleted; set the bank's retention period")
     if s.scanner != "clamav":
         problems.append("SCANNER must be clamav in production; the builtin scanner only recognises a test file")
-    if s.break_glass_on and not 15 <= s.break_glass_minutes <= 240:
-        problems.append("BREAK_GLASS_MINUTES must be between 15 and 240")
     return problems
