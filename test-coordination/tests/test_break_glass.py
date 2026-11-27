@@ -181,3 +181,15 @@ def test_production_guard_checks_the_time_limit():
     s = replace(Settings(), app_env="production", break_glass="on", break_glass_minutes=600)
     assert any("BREAK_GLASS_MINUTES" in p for p in check_production(s))
     assert timedelta(minutes=60)        # default within range
+
+
+def test_spaces_around_a_pasted_passphrase_are_ignored(client, holders, on):
+    h = holders["omar"]
+    with worker_engine().begin() as c:
+        c.execute(text("UPDATE break_glass_accounts SET failed_attempts = 0, locked_until = NULL WHERE email = :e"), {"e": h["email"]})
+    padded = {**h, "passphrase": f"  {h['passphrase']} \n"}
+    r = ask(client, on, padded)
+    assert r.status_code == 200, r.text
+    client.post("/api/v1/break-glass/end", headers=bearer(r.json()["token"]))
+    inner = {**h, "passphrase": h["passphrase"].replace("-", " - ", 1)}            # a space inside still counts
+    assert ask(client, on, inner).status_code == 403

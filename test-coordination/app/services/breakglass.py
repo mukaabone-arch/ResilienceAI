@@ -151,7 +151,8 @@ def _verify(conn: Connection, tenant_id: UUID, email: str, passphrase: str, code
     if acc["locked_until"] and acc["locked_until"] > now():
         _record(conn, tenant_id, user, "break_glass.failed", acc["id"], {"why": "locked", "from": source})
         return None, "Too many wrong attempts. This break-glass account is locked for a while; use another holder or wait."
-    pass_ok = check_passphrase(passphrase or "", acc["passphrase_hash"])
+    # Spaces around a pasted passphrase are a copying slip, not part of it (generated passphrases never contain spaces).
+    pass_ok = check_passphrase((passphrase or "").strip(), acc["passphrase_hash"])
     step = totp_step(code, acc["totp_secret"], acc["last_totp_step"]) if pass_ok else None
     if step is None:
         fails = acc["failed_attempts"] + 1
