@@ -26,7 +26,7 @@ An existing database created before `scripts.migrate` existed needs `python -m s
 ## Tests
 
 ```bash
-pytest -q        # 92 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
+pytest -q        # 99 tests: domain units + end-to-end against a real PostgreSQL (schema is reset)
 ```
 
 `tests/test_journey.py::test_core_banking_journey` walks the spec §31 demo end to end: programme → template → event → plan approval → stakeholders and acknowledgements → blocked DB prerequisite → readiness gate refuses go → evidence reject/resubmit → readiness exception → go decision → live (announcements, pause/resume) → RTO/RPO capture → findings → closure checklist → sign-offs → frozen closure report → audit-chain verification. Other tests cover QA-04/05/07/13/14/15 and transaction rollback.
@@ -69,6 +69,15 @@ Rules that always hold:
 - `AI_PROVIDER=rules` (default) writes everything from the records with no external service. `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` lets Claude (`AI_MODEL`) reword that text: names are replaced with placeholders before sending, the model may use only the facts given, and its answer is checked (no unknown record codes or people, sensible length). Any failure falls back to the built-in text, and the reason is logged.
 
 Scheduled jobs (notification delivery, escalations, live summaries): `python -m scripts.worker` (every minute) or `--once` from cron.
+
+## Decision records
+
+Every go/no-go decision is sealed in the same transaction: a snapshot of what it rested on (each readiness condition,
+exceptions with approver and justification, activities and blockers, open issues, evidence, acknowledgements), who was
+present and any dissent raised in the call. Its SHA-256 fingerprint is written into the hash-chained audit trail.
+Participants can add dissent afterwards (insert-only). `GET /test-events/{id}/replay?at=` rebuilds the test as it stood
+at any moment from the audit trail; `GET /test-events/{id}/audit-pack` returns a ZIP with a standard-library `verify.py`
+an examiner can run without ResilienceAI.
 
 ## Reports
 

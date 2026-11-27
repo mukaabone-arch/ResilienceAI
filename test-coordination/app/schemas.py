@@ -217,12 +217,26 @@ class MeasurementIn(Model):
     evidence_id: Optional[UUID] = None
 
 
+class DissentIn(Model):
+    user_id: UUID
+    kind: Literal["Dissent", "Concern"] = "Dissent"
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class ApprovalIn(Model):
     approval_type: Literal["Go/No-go", "ReadinessException", "Resume", "Business", "RiskReview", "Closure"]
     decision: Literal["Approved", "Rejected", "Conditional"]
     comments: Optional[str] = None
     conditions: Optional[str] = None
     subject_id: Optional[UUID] = None
+    # Go/no-go only: who took part in the decision, and any disagreement raised in the call (sealed with the record).
+    present_user_ids: list[UUID] = Field(default_factory=list, max_length=200)
+    dissents: list[DissentIn] = Field(default_factory=list, max_length=50)
+
+
+class LaterDissentIn(Model):
+    kind: Literal["Dissent", "Concern"] = "Dissent"
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 class ApprovalRequestIn(Model):

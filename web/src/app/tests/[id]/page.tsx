@@ -7,14 +7,16 @@ import { ErrorNotice, Loading, Pill, useAction, useDialog } from "@/components/u
 import { api, useApi } from "@/lib/api";
 import { useMe } from "@/lib/me";
 import { fmtDateTime, isoToZonedInput, relative, tzLabel, zonedToIso } from "@/lib/format";
+import { DecisionsTab } from "@/components/Decisions";
 import { ActivitiesTab, ClosureTab, EvidenceTab, OverviewTab, PeopleTab, ReadinessTab, TimelineTab } from "./tabs";
 
 const SERIES_LABEL: Record<string, string> = { weekly: "weekly", monthly: "monthly", quarterly: "quarterly", half_yearly: "every 6 months", yearly: "yearly" };
 const TRACK = ["Draft", "Planned", "Mobilising", "Readiness", "Ready", "Live", "Closure", "Closed"];
-const TABS = [
+const TABS: { key: string; label: string; internal?: boolean }[] = [
   { key: "overview", label: "Overview" },
   { key: "activities", label: "Activities" },
   { key: "readiness", label: "Readiness and go" },
+  { key: "decisions", label: "Decisions", internal: true },
   { key: "people", label: "People" },
   { key: "timeline", label: "Timeline" },
   { key: "evidence", label: "Evidence" },
@@ -157,7 +159,7 @@ function EventWorkspace() {
 
       {feedback}
       <nav className="tabs" aria-label="Test sections">
-        {TABS.map((t) => (
+        {TABS.filter((t) => !(t.internal && me?.is_external)).map((t) => (
           <Link key={t.key} href={`/tests/${id}?tab=${t.key}`} aria-current={tab === t.key ? "page" : undefined} scroll={false}>{t.label}</Link>
         ))}
       </nav>
@@ -165,6 +167,7 @@ function EventWorkspace() {
       {tab === "overview" && <OverviewTab {...ctx} />}
       {tab === "activities" && <ActivitiesTab {...ctx} />}
       {tab === "readiness" && <ReadinessTab {...ctx} />}
+      {tab === "decisions" && !me?.is_external && <DecisionsTab ev={ev} />}
       {tab === "people" && <PeopleTab {...ctx} />}
       {tab === "timeline" && <TimelineTab {...ctx} />}
       {tab === "evidence" && <EvidenceTab {...ctx} />}

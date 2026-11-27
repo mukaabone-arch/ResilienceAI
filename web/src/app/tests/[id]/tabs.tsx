@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ActivityActions } from "@/components/ActivityActions";
 import { AssistantCards, MessageDrafts } from "@/components/Assistant";
+import { GoDecision, GoDecisionDialog } from "@/components/Decisions";
 import { DependencyMap } from "@/components/DependencyMap";
 import { useEvidenceUpload } from "@/components/EvidenceUpload";
 import { ReadinessGate } from "@/components/ReadinessGate";
@@ -162,6 +163,7 @@ export function ReadinessTab(ctx: Ctx) {
   const { ev, me, isPM, reloadEvent } = ctx;
   const { data: rd, error, reload } = useApi<any>(`/test-events/${ev.id}/readiness`);
   const { data: users } = useApi<any[]>(ev.can_manage ? "/users" : null);
+  const [deciding, setDeciding] = useState<null | boolean>(null);   // which decision dialog is open (go / no-go)
   const { data: teams } = useApi<any[]>(ev.can_manage ? "/teams" : null);
   const refresh = () => { reload(); reloadEvent(); };
   const { run, busy, feedback } = useAction(refresh);
@@ -213,16 +215,15 @@ export function ReadinessTab(ctx: Ctx) {
       title: v.title, is_mandatory: v.is_mandatory === "yes", evidence_required: v.evidence_required === "yes", owner_user_id: v.owner_user_id || undefined,
     }), "Condition added");
   }
-  async function decide(go: boolean) {
-    const v = await ask({ title: go ? "Record go decision" : "Record no-go decision", confirm: go ? "Record go" : "Record no-go",
-      danger: !go, description: go ? "The current readiness state is saved with your decision." : "The test can't start until a new go decision is recorded.",
-      fields: [{ name: "comments", label: go ? "Notes" : "Reason", kind: "textarea", required: !go },
-        ...(go ? [{ name: "conditions", label: "Conditions attached to the go", kind: "textarea" as const }] : [])] });
+  function decided(go: boolean, v: GoDecision | null) {
+    setDeciding(null);
     if (v) run(() => api("POST", `/test-events/${ev.id}/approvals`, {
-      approval_type: "Go/No-go", decision: !go ? "Rejected" : v.conditions ? "Conditional" : "Approved",
-      comments: v.comments || undefined, conditions: v.conditions || undefined,
-    }), go ? "Go decision recorded" : "No-go recorded");
+      approval_type: "Go/No-go", decision: !go ? "Rejected" : v.conditions.trim() ? "Conditional" : "Approved",
+      comments: v.comments.trim() || undefined, conditions: v.conditions.trim() || undefined,
+      present_user_ids: v.present_user_ids, dissents: v.dissents,
+    }), go ? "Go decision recorded and sealed. See the Decisions tab." : "No-go recorded and sealed. See the Decisions tab.");
   }
+  function decide(go: boolean) { setDeciding(go); }
   async function requestGo() {
     const approvers = (users ?? []).filter((u) => u.roles.includes("DRProgrammeManager") || u.id === ev.owner_user_id);
     run(() => api("POST", `/test-events/${ev.id}/approval-requests`, { approval_type: "Go/No-go", approver_user_ids: approvers.map((u) => u.id) }),
@@ -245,6 +246,7 @@ export function ReadinessTab(ctx: Ctx) {
         }} />
         {preReady && ev.can_manage && <div><button className="btn" onClick={addItem}>Add readiness condition</button></div>}
         {upload.node}
+        {deciding !== null && <GoDecisionDialog ev={ev} me={me} go={deciding} onDone={(v) => decided(deciding, v)} />}
       </div>
       <div className="stack">
         {!me.is_external && <AssistantCards ev={ev} features={["blocker_briefing", "slip_forecast"]} />}

@@ -21,7 +21,7 @@ def _jsonable(v: Any) -> Any:
 
 def record(ctx: Ctx, action: str, entity_type: str, entity_id: UUID | None, *,
            event_id: UUID | None = None, old: dict | None = None, new: dict | None = None,
-           actor: UUID | None | str = "me") -> None:
+           actor: UUID | None | str = "me") -> dict:
     a = t("test_event_audit")
     # Serialise chain appends per tenant for this transaction.
     ctx.conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"audit:{ctx.me.tenant_id}"})
@@ -39,6 +39,7 @@ def record(ctx: Ctx, action: str, entity_type: str, entity_id: UUID | None, *,
     row["prev_hash"] = prev
     row["row_hash"] = audit_chain.compute_hash(prev, audit_chain.hash_payload(row))
     ctx.conn.execute(insert(a).values(**row))
+    return row
 
 
 def verify_tenant_chain(ctx: Ctx) -> dict:

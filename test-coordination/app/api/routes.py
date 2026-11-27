@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from .. import schemas as sc
 from ..ai import service as assistant
 from ..security import Ctx, get_ctx
-from ..services import audit, calendar, events, evidence, idempotency, people, reports, series, views, work
+from ..services import audit, calendar, decisions, events, evidence, idempotency, people, reports, series, views, work
 
 router = APIRouter()
 D = Depends(get_ctx)
@@ -433,6 +433,32 @@ def review_evidence(evidence_id: UUID, data: sc.ReviewIn, ctx: Ctx = D):
 def approve(event_id: UUID, data: sc.ApprovalIn, ctx: Ctx = D, idempotency_key: Optional[str] = Header(default=None)):
     return idempotency.run(ctx, idempotency_key, f"approval:{event_id}", data.model_dump(),
                            lambda: work.record_approval(ctx, event_id, body(data)))
+
+
+@router.get("/test-events/{event_id}/decision-records", tags=["approvals"],
+            summary="Sealed go/no-go decision records with dissent and verification")
+def decision_records(event_id: UUID, ctx: Ctx = D):
+    return decisions.list_records(ctx, event_id)
+
+
+@router.post("/decision-records/{record_id}/dissent", status_code=201, tags=["approvals"],
+             summary="Add your dissent or concern to a decision (append-only)")
+def add_dissent(record_id: UUID, data: sc.LaterDissentIn, ctx: Ctx = D):
+    return decisions.add_dissent(ctx, record_id, data.kind, data.reason)
+
+
+@router.get("/test-events/{event_id}/replay", tags=["approvals"],
+            summary="The test as it stood at a moment, rebuilt from the audit trail")
+def replay(event_id: UUID, at: Optional[datetime] = None, ctx: Ctx = D):
+    return decisions.replay(ctx, event_id, at)
+
+
+@router.get("/test-events/{event_id}/audit-pack", tags=["approvals"],
+            summary="ZIP of decision records, audit records, timeline, manifest and an offline verifier")
+def audit_pack(event_id: UUID, ctx: Ctx = D):
+    data, name = decisions.audit_pack(ctx, event_id)
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
 @router.post("/test-events/{event_id}/approval-requests", tags=["approvals"])
