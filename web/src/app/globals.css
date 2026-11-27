@@ -651,3 +651,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .rt-facts dd { margin: 2px 0 0; font-weight: 600; font-size: var(--t-md); }
 .pc-row > td { padding-top: 0 !important; border-top: 0 !important; }
 .pc-row .pc-box { margin-top: 0; max-width: 860px; }
+
+/* ---------- Lessons from earlier tests ---------- */
+.lessons-from { margin: -4px 0 12px; line-height: 1.5; }
+.lessons { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.lesson { padding: 12px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.7); border: 1px solid var(--glass-line); border-left: 3px solid var(--waiting); }
+.lesson.again { border-left-color: var(--blocked); background: color-mix(in srgb, var(--blocked-tint) 45%, white); }
+.lesson.decided { border-left-color: var(--line-strong); opacity: 0.78; }
+.lesson-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; margin-bottom: 3px; }
+.lesson-kind { font-size: var(--t-xs); font-weight: 700; color: var(--waiting); }
+.lesson-kind.k-open_action, .lesson-kind.k-missed_target { color: var(--blocked); }
+.lesson-kind.k-rejected_evidence, .lesson-kind.k-finding { color: var(--ink-2); }
+.lesson-applies { font-size: var(--t-xs); color: var(--ink-3); }
+.lesson-title { font-weight: 600; font-size: var(--t-sm); color: var(--ink); }
+.lesson-detail { font-size: var(--t-sm); color: var(--ink-2); margin-top: 2px; }
+.lesson-again { margin-top: 6px; font-size: var(--t-xs); font-weight: 700; color: var(--blocked); }
+.lesson-src { color: var(--ink-3); margin-top: 6px; }
+.lesson-decision { margin-top: 6px; color: var(--ink-2); }
+.lesson-actions { margin-top: 8px; justify-content: flex-start; }
+.learned { font-size: var(--t-xs); color: #5b3a8a; font-weight: 600; margin-top: 2px; }

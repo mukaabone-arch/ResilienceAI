@@ -11,7 +11,8 @@ from fastapi.responses import Response
 from .. import schemas as sc
 from ..ai import service as assistant
 from ..security import Ctx, get_ctx
-from ..services import audit, calendar, decisions, events, evidence, idempotency, people, reports, series, views, work
+from ..services import (audit, calendar, decisions, events, evidence, idempotency, lessons, people, reports, series,
+                        views, work)
 
 router = APIRouter()
 D = Depends(get_ctx)
@@ -352,6 +353,28 @@ def batch_readiness(event_id: UUID, data: sc.ReadinessUpdateIn, ctx: Ctx = D):
             raise Unprocessable("Readiness item belongs to another event")
         out.append(item)
     return out
+
+
+@router.get("/test-events/{event_id}/lessons", tags=["lessons"], summary="Lessons from related earlier tests")
+def event_lessons(event_id: UUID, ctx: Ctx = D):
+    return lessons.for_event(ctx, event_id)
+
+
+@router.post("/test-events/{event_id}/lessons/{key}/apply", status_code=201, tags=["lessons"],
+             summary="Turn a lesson into a readiness condition of this test")
+def apply_lesson(event_id: UUID, key: str, data: sc.LessonApplyIn, ctx: Ctx = D):
+    return lessons.apply(ctx, event_id, key, title=data.title, owner_user_id=data.owner_user_id,
+                         mandatory=data.is_mandatory, evidence_required=data.evidence_required)
+
+
+@router.post("/test-events/{event_id}/lessons/{key}/dismiss", tags=["lessons"], summary="Set a lesson aside, with a reason")
+def dismiss_lesson(event_id: UUID, key: str, data: sc.LessonDismissIn, ctx: Ctx = D):
+    return lessons.dismiss(ctx, event_id, key, data.reason)
+
+
+@router.delete("/test-events/{event_id}/lessons/{key}/decision", tags=["lessons"], summary="Undo setting a lesson aside")
+def reopen_lesson(event_id: UUID, key: str, ctx: Ctx = D):
+    return lessons.reopen(ctx, event_id, key)
 
 
 @router.get("/test-events/{event_id}/readiness", tags=["readiness"], summary="Screen 07 — readiness centre")

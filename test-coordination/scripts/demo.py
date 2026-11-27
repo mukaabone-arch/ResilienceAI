@@ -3,7 +3,8 @@
 Usage:  python -m scripts.demo
 Creates tests at different stages relative to today, so every screen has
 something to show:
-  - Core Banking DR Simulation      Readiness, database prerequisite blocked
+  - Core Banking DR Simulation (H1) Closed five months ago: a blocker, overruns, a missed RTO, open remediation
+  - Core Banking DR Simulation      Readiness, database prerequisite blocked; learns from the H1 run
   - Payments Gateway Failover       Ready, waiting for the go decision
   - Internet Banking App Recovery   Live, coordination in progress
   - Card Switch DR Rehearsal        Planned
@@ -27,6 +28,43 @@ from scripts.seed import CORE_BANKING_TEMPLATE, reset, seed_tenant
 
 SHA = hashlib.sha256(b"demo").hexdigest()
 NOW = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+
+class SimClock:
+    """Plays part of the demo at past times, so an earlier test has a realistic history (how long things were
+    blocked, what overran). Demo data only: it swaps the clock the services and the audit trail read."""
+    MODULES = ("app.services.common", "app.services.work", "app.services.events", "app.services.evidence",
+               "app.services.people", "app.services.views", "app.services.decisions", "app.services.lessons",
+               "app.services.reports", "app.ai.prechecks", "app.ai.facts", "app.ai.service")
+
+    def __init__(self):
+        import importlib
+        from app.services import audit
+        self.mods = [importlib.import_module(m) for m in self.MODULES]
+        self.audit, self.at = audit, None
+
+    def set(self, at: datetime) -> None:
+        clock = self
+
+        class FakeDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return clock.at if tz else clock.at.replace(tzinfo=None)
+        if self.at is None:
+            self.saved = [(m, m.now) for m in self.mods if hasattr(m, "now")] + [(self.audit, None)]
+            for m in self.mods:
+                if hasattr(m, "now"):
+                    m.now = lambda: clock.at
+            self.audit.datetime = FakeDateTime
+        self.at = at
+
+    def stop(self) -> None:
+        for m, fn in self.saved:
+            if fn is None:
+                m.datetime = datetime
+            else:
+                m.now = fn
+        self.at = None
 
 
 class Api:
@@ -101,6 +139,98 @@ def main() -> None:
               "sana.lead": "Database team lead"}
     owners = {"INF-01": "anita.infra", "NET-01": "kiran.net", "DB-01": "rahul.dba", "APP-01": "deepa.app",
               "TV-01": "deepa.app", "BV-01": "farah.biz"}
+
+    # 0. The previous Core Banking DR run (about five months ago), so the next one has lessons to learn ----------
+    clock = SimClock()
+    S0 = (NOW - timedelta(days=161)).replace(hour=1, minute=30)          # 07:00 IST
+    clock.set(S0 - timedelta(days=21))
+    prev = new_event("Core Banking DR Simulation (H1)", "Application", "Critical", S0, rto=240, rpo=15)
+    pid = prev["id"]
+    stp = mobilise(prev, people)
+    pacts = assign(pid, stp, owners)
+    for sub in ("anita.infra", "kiran.net", "rahul.dba", "deepa.app", "farah.biz", "sana.lead"):
+        api(sub, "POST", f"/test-stakeholders/{stp[sub]['id']}/respond", {"accept": True})
+    clock.set(S0 - timedelta(days=10))
+    api("meera.tm", "POST", f"/test-events/{pid}/transitions", {"action": "begin_readiness"})
+
+    def upload(who, act, name, text, kind="Log"):
+        r = api.c.post(f"/api/v1/test-activities/{act['id']}/evidence/upload",
+                       headers={"X-Tenant-Id": api.tenant, "X-User-Subject": who},
+                       files={"file": (name, text.encode(), "text/plain")}, data={"evidence_type": kind})
+        if r.status_code >= 400:
+            raise RuntimeError(f"demo upload failed: {r.status_code} {r.text}")
+        return r.json()
+
+    clock.set(S0 - timedelta(days=4))
+    move("anita.infra", pacts["INF-01"]["id"], "In Progress", "Submitted")
+    clock.set(S0 - timedelta(days=3))
+    move("kiran.net", pacts["NET-01"]["id"], "In Progress", "Submitted")
+    clock.set(S0 - timedelta(days=2, hours=-3))
+    move("rahul.dba", pacts["DB-01"]["id"], "In Progress")
+    clock.set(S0 - timedelta(days=2, hours=-4))
+    move("rahul.dba", pacts["DB-01"]["id"], "Blocked",
+         reason="Storage snapshot was taken 45 minutes before the window; the vendor's schedule isn't aligned to the RPO")
+    blk = api("rahul.dba", "POST", f"/test-events/{pid}/issues", {
+        "title": "Storage snapshot schedule not aligned to RPO", "severity": "High", "issue_type": "Blocker",
+        "activity_id": pacts["DB-01"]["id"]})
+    clock.set(S0 - timedelta(days=2, hours=-10, minutes=-30))
+    move("rahul.dba", pacts["DB-01"]["id"], "In Progress")
+    api("meera.tm", "PATCH", f"/test-issues/{blk['id']}", {"status": "Resolved", "root_cause":
+        "Snapshot job ran on the vendor's default 6-hourly schedule", "comment": "Vendor took a manual snapshot"})
+    clock.set(S0 - timedelta(days=1, hours=2))
+    bad = upload("rahul.dba", pacts["DB-01"], "snapshot-check.log",
+                 f"{(S0 - timedelta(days=1, hours=2)).astimezone(timezone(timedelta(hours=5, minutes=30))):%Y-%m-%d %H:%M} "
+                 "snapshot verified on uat-cbs-db02 (recovery point)\n")
+    api("rohan.risk", "POST", f"/test-evidence/{bad['id']}/review", {"accept": False,
+        "comment": "Snapshot log is from the UAT array, not the DR replica"})
+    good = upload("rahul.dba", pacts["DB-01"], "snapshot-check-dr.log",
+                  f"{(S0 - timedelta(days=1)).astimezone(timezone(timedelta(hours=5, minutes=30))):%Y-%m-%d %H:%M} "
+                  "snapshot verified on cbs-drc-db01, apply lag 00:00:09 (recovery point)\n")
+    api("rohan.risk", "POST", f"/test-evidence/{good['id']}/review", {"accept": True})
+    move("rahul.dba", pacts["DB-01"]["id"], "Submitted")
+    clock.set(S0 - timedelta(hours=9))                                  # due 12 h before; three hours late
+    move("deepa.app", pacts["APP-01"]["id"], "In Progress", "Submitted")
+    prd = {i["title"]: i for i in api("meera.tm", "GET", f"/test-events/{pid}/readiness")["items"]}
+    for title in ("Change request approved", "Database recovery ready", "Business validation team confirmed"):
+        api("meera.tm", "PATCH", f"/test-readiness-items/{prd[title]['id']}", {"status": "Ready"})
+    cre = api("meera.tm", "POST", f"/test-readiness-items/{prd['Change request approved']['id']}/evidence",
+              {"evidence_type": "ExternalRecord", "storage_reference": "servicenow://CHG0039876"})
+    api("rohan.risk", "POST", f"/test-evidence/{cre['id']}/review", {"accept": True})
+    clock.set(S0 - timedelta(hours=2))
+    api("meera.tm", "POST", f"/test-events/{pid}/transitions", {"action": "mark_ready"})
+    api("arjun.pm", "POST", f"/test-events/{pid}/approvals", {"approval_type": "Go/No-go", "decision": "Approved"})
+    clock.set(S0)
+    api("meera.tm", "POST", f"/test-events/{pid}/start")
+    clock.set(S0 + timedelta(hours=2))
+    move("deepa.app", pacts["TV-01"]["id"], "In Progress")
+    upload("deepa.app", pacts["TV-01"], "service-checks.log", "Technical validation passed: recovered core banking services answering on cbs-drc-app01\n")
+    clock.set(S0 + timedelta(hours=7, minutes=10))                     # due 4 h after start
+    tvr = [x for x in api("meera.tm", "GET", f"/test-events/{pid}/evidence") if x["filename"] == "service-checks.log"][0]
+    api("rohan.risk", "POST", f"/test-evidence/{tvr['id']}/review", {"accept": True})
+    move("deepa.app", pacts["TV-01"]["id"], "Submitted")
+    clock.set(S0 + timedelta(hours=8))
+    move("farah.biz", pacts["BV-01"]["id"], "In Progress", "Submitted")
+    api("meera.tm", "POST", f"/test-events/{pid}/transitions", {"action": "complete"})
+    pm1 = api("rahul.dba", "POST", f"/test-events/{pid}/measurements", {"measurement_type": "RTO", "target_value": 4,
+              "target_unit": "Hours", "actual_value": 312, "unit": "Minutes"})
+    pm2 = api("rahul.dba", "POST", f"/test-events/{pid}/measurements", {"measurement_type": "RPO", "target_value": 15,
+              "target_unit": "Minutes", "actual_value": 12, "unit": "Minutes"})
+    for m in (pm1, pm2):
+        api("rohan.risk", "POST", f"/test-measurements/{m['id']}/validate")
+    fnd = api("deepa.app", "POST", f"/test-events/{pid}/issues", {"title": "Batch jobs restarted twice after failover",
+              "severity": "High", "issue_type": "Finding", "activity_id": pacts["TV-01"]["id"]})
+    api("meera.tm", "PATCH", f"/test-issues/{fnd['id']}", {"root_cause": "Job scheduler still pointed at the primary host name"})
+    api("meera.tm", "POST", f"/test-issues/{fnd['id']}/remediation-actions", {"title": "Point the job scheduler at the DR alias",
+        "owner_user_id": u["sana.lead"], "due_at": (S0 + timedelta(days=45)).isoformat()})
+    pv = api("meera.tm", "GET", f"/test-events/{pid}")
+    api("meera.tm", "PUT", f"/test-events/{pid}/outcome", {"outcome": "Partial", "expected_version": pv["version"],
+        "summary": "Recovered in 5 h 12 min against a 4-hour RTO; DB-01 blocked 6.5 hours by the snapshot schedule."})
+    clock.set(S0 + timedelta(days=3))
+    api("farah.biz", "POST", f"/test-events/{pid}/approvals", {"approval_type": "Business", "decision": "Approved"})
+    api("rohan.risk", "POST", f"/test-events/{pid}/approvals", {"approval_type": "RiskReview", "decision": "Approved"})
+    api("arjun.pm", "POST", f"/test-events/{pid}/approvals", {"approval_type": "Closure", "decision": "Approved"})
+    api("meera.tm", "POST", f"/test-events/{pid}/close")
+    clock.stop()
 
     # 1. Core Banking — Readiness, DB blocked -----------------------------------
     cb = new_event("Core Banking DR Simulation", "Application", "Critical", NOW + timedelta(days=5, hours=13),
