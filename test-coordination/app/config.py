@@ -111,4 +111,9 @@ def check_production(s: Settings = settings) -> list[str]:
         problems.append("EVIDENCE_RETENTION_DAYS is 0, so evidence could be deleted; set the bank's retention period")
     if s.scanner != "clamav":
         problems.append("SCANNER must be clamav in production; the builtin scanner only recognises a test file")
+    if s.ai_provider not in ("rules", "anthropic"):
+        problems.append(f"AI_PROVIDER={s.ai_provider} isn't recognised; use rules or anthropic")
+    if s.ai_provider == "anthropic" and not s.anthropic_api_key:
+        problems.append("AI_PROVIDER=anthropic needs ANTHROPIC_API_KEY (without it every AI feature would quietly fall back "
+                        "to rules); set the key from the vault, or AI_PROVIDER=rules")
     return problems
