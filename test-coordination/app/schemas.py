@@ -97,6 +97,11 @@ class StakeholderIn(Model):
     alternate_user_id: Optional[UUID] = None
 
 
+class LegalHoldIn(Model):
+    on: bool
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
+
 class RespondIn(Model):
     accept: bool
     comment: Optional[str] = None

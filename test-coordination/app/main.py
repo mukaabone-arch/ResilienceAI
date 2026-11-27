@@ -70,7 +70,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/ready", tags=["ops"], summary="Readiness: the database is reachable and migrated")
+@app.get("/ready", tags=["ops"], summary="Readiness: the database is migrated and the evidence store is set up")
 def ready():
     from sqlalchemy import text
 
@@ -78,7 +78,16 @@ def ready():
     try:
         with engine().connect() as c:
             c.execute(text("SELECT 1 FROM test_events LIMIT 1"))
-        return {"status": "ready"}
     except Exception as e:  # noqa: BLE001 - report, don't crash the probe
         log.warning("not ready: %s", e)
         return JSONResponse(status_code=503, content={"status": "not ready", "reason": type(e).__name__})
+    from .services import storage
+    try:
+        st = storage.store()
+        problems = st.check() if hasattr(st, "check") else []
+    except Exception as e:  # noqa: BLE001
+        problems = [f"Evidence store: {type(e).__name__}"]
+    if problems:
+        log.warning("not ready: %s", problems)
+        return JSONResponse(status_code=503, content={"status": "not ready", "reason": "; ".join(problems)})
+    return {"status": "ready"}

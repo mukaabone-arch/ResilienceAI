@@ -379,6 +379,12 @@ async def _upload(ctx: Ctx, file: UploadFile, evidence_type: str, sha256: Option
                            client_sha256=sha256, supersedes_id=supersedes_id)
 
 
+@router.post("/test-evidence/{evidence_id}/legal-hold", tags=["evidence"],
+             summary="Place or release a legal hold on an uploaded file (risk, audit, administrator)")
+def legal_hold(evidence_id: UUID, data: sc.LegalHoldIn, ctx: Ctx = D):
+    return evidence.set_legal_hold(ctx, evidence_id, data.on, data.reason)
+
+
 @router.post("/test-activities/{activity_id}/evidence/upload", status_code=201, tags=["evidence"],
              summary="Upload an evidence file for an activity (multipart)")
 async def upload_activity_evidence(activity_id: UUID, file: UploadFile = File(...), evidence_type: str = Form("Report"),

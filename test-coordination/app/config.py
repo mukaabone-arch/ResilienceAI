@@ -44,6 +44,24 @@ class Settings:
     evidence_store: str = os.getenv("EVIDENCE_STORE", "local")
     evidence_dir: str = os.getenv("EVIDENCE_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "evidence-store"))
     evidence_max_mb: int = int(os.getenv("EVIDENCE_MAX_MB", "25"))
+    # EVIDENCE_STORE=s3: any S3-compatible store (AWS S3, MinIO, others). Credentials come from the standard AWS
+    # sources (environment, instance or workload role); set EVIDENCE_S3_ENDPOINT for a non-AWS store.
+    evidence_s3_bucket: str = os.getenv("EVIDENCE_S3_BUCKET", "")
+    evidence_s3_endpoint: str = os.getenv("EVIDENCE_S3_ENDPOINT", "")
+    evidence_s3_region: str = os.getenv("EVIDENCE_S3_REGION", "ap-south-1")
+    evidence_s3_prefix: str = os.getenv("EVIDENCE_S3_PREFIX", "evidence/")
+    # Server-side encryption for every object: "aws:kms" (with EVIDENCE_S3_KMS_KEY_ID) or "AES256".
+    evidence_s3_sse: str = os.getenv("EVIDENCE_S3_SSE", "aws:kms")
+    evidence_s3_kms_key_id: str = os.getenv("EVIDENCE_S3_KMS_KEY_ID", "")
+    # Object Lock retention: files can't be deleted or overwritten for this many days (0 = no lock).
+    # COMPLIANCE: no one can shorten it, administrators included. GOVERNANCE: specially permitted admins can.
+    evidence_retention_days: int = int(os.getenv("EVIDENCE_RETENTION_DAYS", "0"))
+    evidence_retention_mode: str = os.getenv("EVIDENCE_RETENTION_MODE", "COMPLIANCE")
+    # Malware scanning. "builtin" only recognises the EICAR test file (development). "clamav" uses a clamd daemon.
+    scanner: str = os.getenv("SCANNER", "builtin")
+    clamd_host: str = os.getenv("CLAMD_HOST", "localhost")
+    clamd_port: int = int(os.getenv("CLAMD_PORT", "3310"))
+    clamd_timeout_s: float = float(os.getenv("CLAMD_TIMEOUT_S", "30"))
     # Assistant. "rules" composes everything from the records with no external service.
     # "anthropic" lets Claude rewrite that text (names hidden, facts only, checked, with fallback).
     ai_provider: str = os.getenv("AI_PROVIDER", "rules")
@@ -80,4 +98,12 @@ def check_production(s: Settings = settings) -> list[str]:
         problems.append("NOTIFY_MODE=m365 needs GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET and GRAPH_SENDER")
     if s.evidence_store == "local":
         problems.append("EVIDENCE_STORE=local keeps evidence on the container's disk; use encrypted object storage")
+    if s.evidence_store == "s3" and not s.evidence_s3_bucket:
+        problems.append("EVIDENCE_STORE=s3 needs EVIDENCE_S3_BUCKET")
+    if s.evidence_store == "s3" and s.evidence_s3_sse == "aws:kms" and not s.evidence_s3_kms_key_id:
+        problems.append("EVIDENCE_S3_SSE=aws:kms needs EVIDENCE_S3_KMS_KEY_ID (or use AES256)")
+    if s.evidence_retention_days <= 0:
+        problems.append("EVIDENCE_RETENTION_DAYS is 0, so evidence could be deleted; set the bank's retention period")
+    if s.scanner != "clamav":
+        problems.append("SCANNER must be clamav in production; the builtin scanner only recognises a test file")
     return problems

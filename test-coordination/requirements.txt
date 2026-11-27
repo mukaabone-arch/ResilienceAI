@@ -8,3 +8,4 @@ reportlab>=4.0
 openpyxl>=3.1
 httpx>=0.27            # Entra signing keys; optional Claude provider
 PyJWT[crypto]>=2.8     # Entra ID access-token validation
+boto3>=1.34            # evidence in S3-compatible object storage

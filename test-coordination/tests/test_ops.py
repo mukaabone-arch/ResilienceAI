@@ -48,6 +48,7 @@ def test_production_guard():
     problems = check_production(dataclasses.replace(dev, app_env="production"))
     assert any("AUTH_MODE=dev" in p for p in problems) and any("EVIDENCE_STORE" in p for p in problems)
     ok = dataclasses.replace(dev, app_env="production", auth_mode="oidc", evidence_store="s3",
+                             evidence_s3_bucket="bank-evidence", evidence_s3_sse="AES256", evidence_retention_days=2555, scanner="clamav",
                              entra_client_id="0b6f8c3e-1d2a-4e5f-8a9b-c0d1e2f3a4b5", entra_tenant_id="7d1f3c2a-5b6e-4f80-9a1b-2c3d4e5f6a7b",
                              database_url="postgresql+psycopg://app_user:Str0ng@db/resilience")
     assert check_production(ok) == []

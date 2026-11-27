@@ -9,7 +9,7 @@ import { useEvidenceUpload } from "@/components/EvidenceUpload";
 import { ReadinessGate } from "@/components/ReadinessGate";
 import { ErrorNotice, Loading, Panel, Pill, useAction, useDialog } from "@/components/ui";
 import { api, downloadFile, useApi } from "@/lib/api";
-import { fmtDateTime, fmtTime, relative } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtTime, relative } from "@/lib/format";
 
 type Ctx = { ev: any; me: any; isPM: boolean; reloadEvent: () => void };
 
@@ -570,6 +570,25 @@ export function ClosureTab(ctx: Ctx) {
 /* ------------------------------------------------------------------ Evidence */
 const fmtBytes = (n?: number | null) => (n == null ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
+/** Scan result, encryption, retention and legal hold for one uploaded file. */
+function EvidenceSafety({ x }: { x: any }) {
+  const scan = {
+    Clean: <span className="safe ok">Scanned clean</span>,
+    NotScanned: <span className="safe muted">Not malware-scanned (development)</span>,
+    Pending: <span className="safe wait">Waiting for malware scan; can&apos;t be opened or accepted yet</span>,
+    Infected: <span className="safe bad">Quarantined: {x.scan_detail ?? "malware found"}</span>,
+    Error: <span className="safe bad">Scan failed: {x.scan_detail ?? "unknown error"}</span>,
+  }[x.scan_status as string] ?? null;
+  return (
+    <div className="sub xs safety">
+      {scan}
+      {x.encryption && <span className="safe">Encrypted ({x.encryption === "aws:kms" ? "KMS" : x.encryption})</span>}
+      {x.retain_until && <span className="safe">Locked until {fmtDate(x.retain_until)}</span>}
+      {x.legal_hold && <span className="safe hold" title={x.legal_hold_reason}>Legal hold: {x.legal_hold_reason}</span>}
+    </div>
+  );
+}
+
 export function EvidenceTab(ctx: Ctx) {
   const { ev } = ctx;
   const { data: rows, error, reload } = useApi<any[]>(`/test-events/${ev.id}/evidence`);
@@ -583,6 +602,16 @@ export function EvidenceTab(ctx: Ctx) {
       fields: [{ name: "comment", label: "What's wrong with it?", kind: "textarea", required: true }] });
     if (v) run(() => api("POST", `/test-evidence/${x.id}/review`, { accept, comment: (v as any).comment }),
       accept ? `${x.evidence_code} accepted` : `${x.evidence_code} rejected`);
+  }
+  async function legalHold(x: any, on: boolean) {
+    const v = await ask(on
+      ? { title: `Place a legal hold on ${x.evidence_code}`, confirm: "Place legal hold",
+          description: "The file is kept beyond its retention date until the hold is released. The hold and its reason are recorded in the audit trail.",
+          fields: [{ name: "reason", label: "Reason", kind: "textarea", required: true, hint: "The investigation, dispute or request it relates to" }] }
+      : { title: `Release the legal hold on ${x.evidence_code}`, confirm: "Release hold",
+          description: `Held for: ${x.legal_hold_reason}. After release the file follows its normal retention period.` });
+    if (v) run(() => api("POST", `/test-evidence/${x.id}/legal-hold`, { on, reason: (v as any).reason }),
+      on ? `${x.evidence_code} is on legal hold` : `Legal hold released on ${x.evidence_code}`);
   }
   async function verify(x: any) {
     run(async () => {
@@ -620,9 +649,9 @@ export function EvidenceTab(ctx: Ctx) {
                           {chk ? (chk.valid ? <span style={{ color: "var(--ready)", fontWeight: 600 }}> verified just now</span>
                             : <span className="overdue"> DOES NOT MATCH</span>)
                             : x.last_verified_at ? <> verified {fmtDateTime(x.last_verified_at)}</> : null}
-                          {x.scan_status === "NotScanned" && <>, not malware-scanned</>}
                         </div>
                       )}
+                      {x.storage_backend !== "link" && <EvidenceSafety x={x} />}
                     </td>
                     <td className="small">{x.activity_code ? <><span className="code">{x.activity_code}</span> {x.activity_title}</> : x.readiness_title ? <>Readiness: {x.readiness_title}</> : "—"}</td>
                     <td className="small">{x.submitted_by_name}<div className="sub">{fmtDateTime(x.submitted_at, ev.timezone)}</div></td>
@@ -634,8 +663,12 @@ export function EvidenceTab(ctx: Ctx) {
                         {x.storage_backend === "link"
                           ? (/^https?:\/\//.test(x.storage_reference) ? <a className="btn quiet" href={x.storage_reference} target="_blank" rel="noopener noreferrer">Open link</a> : null)
                           : <>
-                            <button className="btn" onClick={() => run(() => downloadFile(`/test-evidence/${x.id}/download`, x.filename ?? "evidence"))}>Download</button>
+                            <button className="btn" disabled={x.scan_status === "Pending" || x.scan_status === "Infected"}
+                              title={x.scan_status === "Pending" ? "Available once the malware scan finds it clean" : x.scan_status === "Infected" ? "Quarantined by the malware scan" : undefined}
+                              onClick={() => run(() => downloadFile(`/test-evidence/${x.id}/download`, x.filename ?? "evidence"))}>Download</button>
                             <button className="btn quiet" onClick={() => verify(x)}>Verify</button>
+                            {x.can_legal_hold && <button className="btn quiet" onClick={() => legalHold(x, !x.legal_hold)}>
+                              {x.legal_hold ? "Release hold" : "Legal hold"}</button>}
                           </>}
                         {x.can_review && <>
                           <button className="btn primary" onClick={() => review(x, true)}>Accept</button>
@@ -651,7 +684,11 @@ export function EvidenceTab(ctx: Ctx) {
         )}
       </Panel>
       <Panel title="How evidence is protected">
-        <p className="small muted">Uploaded files are stored outside the database and served only as downloads. Each file&apos;s SHA-256 fingerprint is taken in your browser and again on the server when it is uploaded, and checked again on every download. If a stored file has changed, it isn&apos;t served and the failure is written to the audit record.</p>
+        <ul className="small muted protect-list">
+          <li><strong>Fingerprinted.</strong> Each file&apos;s SHA-256 fingerprint is taken in your browser and on the server, and checked again on every download. A file that has changed isn&apos;t served, and the failure is written to the audit record.</li>
+          <li><strong>Scanned.</strong> Every upload is scanned for malware before anyone can open or accept it. Infected files are refused, or quarantined if found later, and the submitter and test manager are told.</li>
+          <li><strong>Encrypted and retention-locked.</strong> In production, files are kept in encrypted object storage under a retention lock: no one, administrators included, can delete or overwrite them before the retention date. Risk, audit and the programme administrator can place a legal hold to keep a file longer.</li>
+        </ul>
       </Panel>
       {node}
     </div>

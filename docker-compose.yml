@@ -22,6 +22,18 @@ x-api-env: &api-env
   WORKER_DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@db:5432/resilience
   EVIDENCE_STORE: ${EVIDENCE_STORE:-local}
   EVIDENCE_MAX_MB: ${EVIDENCE_MAX_MB:-25}
+  EVIDENCE_S3_BUCKET: ${EVIDENCE_S3_BUCKET:-}
+  EVIDENCE_S3_ENDPOINT: ${EVIDENCE_S3_ENDPOINT:-}
+  EVIDENCE_S3_REGION: ${EVIDENCE_S3_REGION:-ap-south-1}
+  EVIDENCE_S3_SSE: ${EVIDENCE_S3_SSE:-aws:kms}
+  EVIDENCE_S3_KMS_KEY_ID: ${EVIDENCE_S3_KMS_KEY_ID:-}
+  EVIDENCE_RETENTION_DAYS: ${EVIDENCE_RETENTION_DAYS:-0}
+  EVIDENCE_RETENTION_MODE: ${EVIDENCE_RETENTION_MODE:-COMPLIANCE}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  SCANNER: ${SCANNER:-builtin}
+  CLAMD_HOST: ${CLAMD_HOST:-clamav}
+  CLAMD_PORT: ${CLAMD_PORT:-3310}
   AI_PROVIDER: ${AI_PROVIDER:-rules}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   AI_MODEL: ${AI_MODEL:-claude-sonnet-5-5}
@@ -100,6 +112,56 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
 
+  # ---- Optional: secure evidence storage on this machine (docker compose --profile secure-storage up -d) ----
+  # MinIO stands in for the bank's S3-compatible store (Object Lock on); ClamAV scans uploads.
+  minio:
+    image: minio/minio:latest
+    profiles: ["secure-storage"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-resilienceai}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-change-me-minio}
+    volumes:
+      - minio:/data
+    ports:
+      - "127.0.0.1:9001:9001"      # MinIO console, this machine only
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    profiles: ["secure-storage"]
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mc alias set local http://minio:9000 "$${AWS_ACCESS_KEY_ID}" "$${AWS_SECRET_ACCESS_KEY}" &&
+        mc mb --ignore-existing --with-lock local/$${EVIDENCE_S3_BUCKET:-resilienceai-evidence} &&
+        mc encrypt set sse-s3 local/$${EVIDENCE_S3_BUCKET:-resilienceai-evidence} || true
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-resilienceai}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-change-me-minio}
+      EVIDENCE_S3_BUCKET: ${EVIDENCE_S3_BUCKET:-resilienceai-evidence}
+    restart: "no"
+
+  clamav:
+    image: clamav/clamav:stable
+    profiles: ["secure-storage"]
+    volumes:
+      - clamav:/var/lib/clamav      # virus definitions, updated by freshclam inside the container
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      start_period: 300s            # the first definitions download takes a few minutes
+      retries: 5
+
 volumes:
   pgdata:
   evidence:
+  minio:
+  clamav:
