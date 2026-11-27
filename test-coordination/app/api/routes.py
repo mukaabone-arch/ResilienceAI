@@ -364,6 +364,15 @@ def ops_status(ctx: Ctx = D):
     return ops.deep_status()
 
 
+@router.get("/break-glass/sessions", tags=["auth"], summary="Open break-glass sessions (administration, risk, audit)")
+def break_glass_sessions(ctx: Ctx = D):
+    from ..authz import require_role
+    from ..domain.enums import Role
+    from ..services import breakglass
+    require_role(ctx, Role.ADMIN, Role.RISK, Role.AUDITOR)
+    return breakglass.open_sessions(ctx.conn)
+
+
 @router.get("/test-events/{event_id}/lessons", tags=["lessons"], summary="Lessons from related earlier tests")
 def event_lessons(event_id: UUID, ctx: Ctx = D):
     return lessons.for_event(ctx, event_id)

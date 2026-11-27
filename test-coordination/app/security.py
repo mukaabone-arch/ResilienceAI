@@ -120,6 +120,14 @@ def verify_entra_token(token: str) -> dict:
 
 
 def _resolve(request: Request, x_tenant_id: str | None, x_user_subject: str | None) -> Identity:
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer bg."):                    # a break-glass session (Entra unavailable)
+        from .services import breakglass
+        try:
+            tenant_id, subject, _ = breakglass.resolve(auth[7:].strip())
+        except breakglass.BreakGlassError as e:
+            raise Unauthenticated(e.message) from e
+        return Identity(tenant_id, subject)
     if config.settings.auth_mode == "dev":
         if not (x_tenant_id and x_user_subject):
             raise Unauthenticated("Missing X-Tenant-Id / X-User-Subject (dev auth)")
@@ -127,7 +135,6 @@ def _resolve(request: Request, x_tenant_id: str | None, x_user_subject: str | No
             return Identity(UUID(x_tenant_id), x_user_subject)
         except ValueError as e:
             raise Unauthenticated("Invalid tenant id") from e
-    auth = request.headers.get("authorization", "")
     if not auth.lower().startswith("bearer "):
         raise Unauthenticated("Bearer token required")
     claims = verify_entra_token(auth[7:].strip())

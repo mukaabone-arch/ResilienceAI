@@ -10,8 +10,26 @@ import {
 import { getSession } from "./session";
 
 export type AuthConfig =
-  | { mode: "dev" }
-  | { mode: "oidc"; provider: "entra"; client_id: string; authority: string; scopes: string[] };
+  | { mode: "dev"; break_glass?: boolean }
+  | { mode: "oidc"; provider: "entra"; client_id: string; authority: string; scopes: string[]; break_glass?: boolean };
+
+/** A break-glass session (Microsoft sign-in unavailable). Kept for this browser tab only. */
+export type BreakGlass = { token: string; status: string; holder?: string | null; expires_at?: string | null; request_code: string };
+const BG_KEY = "resilienceai.breakglass";
+
+export function getBreakGlass(): BreakGlass | null {
+  try { const v = sessionStorage.getItem(BG_KEY); return v ? (JSON.parse(v) as BreakGlass) : null; } catch { return null; }
+}
+export function setBreakGlass(v: BreakGlass | null) {
+  try { if (v) sessionStorage.setItem(BG_KEY, JSON.stringify(v)); else sessionStorage.removeItem(BG_KEY); } catch { /* private mode */ }
+  window.dispatchEvent(new Event("resilienceai-breakglass"));
+}
+/** End the break-glass session on the server and forget it here. */
+export async function endBreakGlass(): Promise<void> {
+  const bg = getBreakGlass();
+  if (bg) await fetch("/api/v1/break-glass/end", { method: "POST", headers: { Authorization: `Bearer ${bg.token}` } }).catch(() => undefined);
+  setBreakGlass(null);
+}
 
 let config: AuthConfig | null = null;
 let msal: PublicClientApplication | null = null;
@@ -81,6 +99,8 @@ async function accessToken(): Promise<string | null> {
 
 /** Headers that identify the person to the API, in whichever mode the deployment uses. */
 export async function authHeaders(): Promise<Record<string, string>> {
+  const bg = getBreakGlass();
+  if (bg?.status === "Active") return { Authorization: `Bearer ${bg.token}` };
   if (config?.mode === "oidc") {
     const token = await accessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};

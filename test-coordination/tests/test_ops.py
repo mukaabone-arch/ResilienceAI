@@ -52,6 +52,10 @@ def test_production_guard():
                              entra_client_id="0b6f8c3e-1d2a-4e5f-8a9b-c0d1e2f3a4b5", entra_tenant_id="7d1f3c2a-5b6e-4f80-9a1b-2c3d4e5f6a7b",
                              database_url="postgresql+psycopg://app_user:Str0ng@db/resilience")
     assert check_production(ok) == []
+    no_key = check_production(dataclasses.replace(ok, ai_provider="anthropic", anthropic_api_key=""))
+    assert len(no_key) == 1 and "ANTHROPIC_API_KEY" in no_key[0]
+    assert check_production(dataclasses.replace(ok, ai_provider="anthropic", anthropic_api_key="sk-ant-x")) == []
+    assert "isn't recognised" in check_production(dataclasses.replace(ok, ai_provider="openai"))[0]
 
 
 def test_health_and_readiness(client):

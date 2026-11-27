@@ -1,6 +1,7 @@
 # Deploying ResilienceAI
 
-The stack is five containers: PostgreSQL, a one-shot **migrate** job, the **api** (FastAPI), the **worker** (notification delivery, acknowledgement escalations, live summaries) and the **web** app (Next.js). The API and worker share one image.
+The stack is five containers: PostgreSQL, a one-shot **migrate** job, the **api** (FastAPI), the **worker** (notification delivery, acknowledgement escalations, live summaries, scanning
+evidence held while the malware scanner was down, and the AI view on evidence pre-checks) and the **web** app (Next.js). The API and worker share one image.
 
 ```
 browser ──► web :3000 ──/api/v1/*──► api :8000 ──► PostgreSQL
@@ -47,6 +48,7 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `ENTRA_CLIENT_ID` | api | none | Application (client) id of the ResilienceAI app registration |
 | `ENTRA_ROLES_FROM_TOKEN` | api | `true` | Entra app roles in the token replace the person's stored roles at sign-in |
 | `ENTRA_BIND_BY_EMAIL` | api | `true` | Link a person provisioned by email to their Entra account at first sign-in |
+| `BREAK_GLASS`, `BREAK_GLASS_MINUTES` | api | `off`, `60` | Emergency access when Entra is unavailable (see "Break-glass access"); sessions last 15 to 240 minutes |
 | `DATABASE_URL` | api | local socket | Restricted `app_user` login |
 | `WORKER_DATABASE_URL` | migrate, worker, demo, api* | local socket | Table owner. *The API uses it only for the dev sign-in directory; don't set it on the API in production |
 | `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` | compose | none | Required. The DB init script creates `app_user` with the second |
@@ -57,8 +59,10 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `SCANNER`, `CLAMD_HOST`, `CLAMD_PORT` | api, worker | `builtin`, `localhost`, `3310` | `clamav` in production |
 | `EVIDENCE_DIR` | api | `/data/evidence` in the image | Volume `evidence` in compose |
 | `EVIDENCE_MAX_MB` | api | `25` | Keep in step with the web proxy limit (30 MB) |
-| `AI_PROVIDER` | api, worker | `rules` | `anthropic` lets Claude reword suggestions; facts and fallback stay rule-based |
-| `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_S` | api, worker | empty, `claude-sonnet-5-5`, `20` | Only with `AI_PROVIDER=anthropic` |
+| `AI_PROVIDER` | api, worker | `rules` | `anthropic` lets Claude reword assistant suggestions, and judge evidence relevance and write the reviewer briefing. Facts, checks and fallback stay rule-based |
+| `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_S` | api, worker | empty, `claude-sonnet-5-5`, `20` | Only with `AI_PROVIDER=anthropic`; the key from the vault |
+| `EVIDENCE_PRECHECK` | api, worker | `on` | `off` turns evidence pre-checks off (see "Evidence pre-checks") |
+| `EVIDENCE_LOOKBACK_DAYS` | api, worker | `14` | How long before a test's start evidence may be dated without being flagged as old |
 | `PORTAL_BASE_URL` | worker | | The address people open ResilienceAI at; every link and Acknowledge button uses it |
 | `NOTIFY_MODE` | worker | `simulated` | `m365` sends through Outlook (Graph) and Teams (Workflows webhook) |
 | `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | worker | `ENTRA_TENANT_ID`, none, none | App-only Microsoft Graph credentials (a separate app registration; secret from the vault) |
@@ -123,6 +127,39 @@ administrator; nothing is created for them automatically.
   person at first sign-in; an already-linked person can't be claimed by another account with the same email.
 - The API's database login can't read other organisations, so it finds the organisation through a single
   database function (`tenant_for_entra`) that answers only that question.
+
+### Break-glass access (when Entra is unavailable)
+
+If Microsoft Entra ID is down during a test window, named **break-glass holders** can still get in. Turn it on with
+`BREAK_GLASS=on` and create at least two holders per organisation (operations, with the owner database login):
+
+```bash
+docker compose run --rm migrate python -m scripts.breakglass add BANK priya.nair@bank.example "Priya Nair"
+docker compose run --rm migrate python -m scripts.breakglass add BANK omar.shah@bank.example "Omar Shah" RiskCompliance
+docker compose run --rm migrate python -m scripts.breakglass list BANK
+```
+
+Each `add` prints a passphrase and an authenticator secret (with an `otpauth://` link for any authenticator app)
+**once**. Hand them over in person or seal them in the bank's vault. The default role is programme administrator.
+
+How it works:
+
+1. The sign-in page shows **Emergency access** (`/break-glass`). A holder enters the organisation code, their email,
+   passphrase, a current authenticator code and the reason (for example the Entra incident number). They get a
+   request code such as `7K3Q-M9PD`.
+2. They phone a **second holder**, who approves that code on their own device with their own passphrase and code.
+   Nobody can approve their own request; a request expires after 15 minutes.
+3. The session lasts `BREAK_GLASS_MINUTES`, with a red banner on every page showing who it is and when it ends.
+   **End session** stops it early.
+
+Safeguards: the holder acts as a separate person record ("Priya Nair (break-glass)"), so every action is attributed
+to the break-glass identity; every request, approval, refusal, failed attempt and ending is in the audit trail and
+logged at WARNING for the SIEM; five wrong attempts lock the account for 30 minutes; an authenticator code works
+once; errors never say which detail was wrong; the passphrase is stored only as a salted scrypt hash. Risk,
+audit and administrators can see open sessions (`GET /api/v1/break-glass/sessions`).
+
+After any use: review the session in the audit trail, then `python -m scripts.breakglass rotate BANK <email>` for
+both holders. `disable` stops a holder at once and ends their sessions.
 
 ## Teams and Outlook notifications
 
@@ -278,6 +315,26 @@ title), grouped when it happened in more than one earlier test, and links to the
 is being planned, its manager can add a lesson as a readiness condition (it then counts towards the go decision and
 shows *Learned from …*) or set it aside with a reason. External users don't see lessons. No external model is used.
 
+## Decision records and the audit pack
+
+Each go, conditional go or no-go seals a snapshot of everything it rested on (conditions, exceptions, blockers,
+acknowledgements, who was present, disagreement). The snapshot's SHA-256 is written into the hash-chained audit
+trail, and every time a record is shown it is checked against both; an edited record shows *Doesn't match its seal*.
+Disagreement added later is insert-only. Nothing to configure (migration `007_decision_records`).
+
+For an examiner, **Audit pack** on a test's Decisions tab downloads a ZIP with the decision records, the test's audit
+trail, its timeline and `verify.py`. The examiner runs it with standard Python 3, no ResilienceAI or network needed:
+
+```bash
+unzip BANK-DR-2026-001-audit-pack-20261127.zip -d pack && cd pack
+python3 verify.py          # ends "RESULT: all checks passed", or "VERIFICATION FAILED" naming what didn't verify
+```
+
+`verify.py` recomputes each record's fingerprint, checks it against its audit row, and re-links the audit rows'
+hash chain, so editing a decision *and* the pack's checksum list is still caught. Only the programme administrator, programme
+managers, risk and compliance, audit, senior management and the test's own managers can download a pack; each
+download is recorded in the audit trail.
+
 ## Production guard
 
 With `APP_ENV=production` the API refuses to start, naming every problem, if:
@@ -286,7 +343,8 @@ With `APP_ENV=production` the API refuses to start, naming every problem, if:
 - `DATABASE_URL` still has a development password,
 - `EVIDENCE_STORE=local` (evidence on a container disk), `s3` without a bucket, or `aws:kms` without a key,
 - `EVIDENCE_RETENTION_DAYS=0` (evidence could be deleted), or `SCANNER` other than `clamav`,
-- `NOTIFY_MODE=m365` without the Graph credentials and sender.
+- `NOTIFY_MODE=m365` without the Graph credentials and sender,
+- `AI_PROVIDER=anthropic` without `ANTHROPIC_API_KEY` (every AI feature would quietly fall back to rules).
 
 `GET /health` says the process is up; `GET /ready` returns 503 until the database answers. Point the load balancer at `/ready`.
 
@@ -294,13 +352,19 @@ With `APP_ENV=production` the API refuses to start, naming every problem, if:
 
 The compose file is a complete single-host deployment for demos and internal testing. A production pilot also needs:
 
-1. **Single sign-on.** Done: Microsoft Entra ID, see below. Still to add before go-live: break-glass access for an identity-provider outage (roadmap R1.3).
+1. **Single sign-on.** Done: Microsoft Entra ID, with break-glass access for an Entra outage (see above). Still to do
+   with the bank: issue the break-glass credentials to at least two holders and agree how they are kept.
 2. **Secrets.** Database passwords and the Anthropic key from the bank's vault, not a `.env` file.
 3. **TLS.** A reverse proxy or ingress in front of `web` (the API is reached only through the web app). Uvicorn runs with `--proxy-headers`.
 4. **Managed PostgreSQL** with automated backups, point-in-time recovery and a tested restore. Back up the evidence store with the same retention.
 5. **Evidence storage.** Done: S3-compatible storage with encryption, Object Lock retention and legal hold, and ClamAV scanning (see above). Still to agree with the bank: the retention period and the KMS key.
 6. **Worker scheduling.** One worker replica (or `python -m scripts.worker --once` from a scheduler every minute). The live-summary slot index makes duplicates harmless, but notifications are delivered by whichever worker claims them.
-7. **Assistant.** Keep `AI_PROVIDER=rules` until the bank approves sending pseudonymised text to the Claude API; every suggestion is logged in `ai_activity_records` either way.
+7. **AI features.** Keep `AI_PROVIDER=rules` until the bank approves sending text to the Claude API under its AI
+   policy. With `anthropic`, two things are sent: assistant drafts with people's names replaced, and masked,
+   name-free excerpts of evidence files (at most ~14,000 characters each) with the test's targets and rule-check
+   titles. Every AI result is logged in `ai_activity_records` with its prompt version and, for evidence, whether the
+   reviewer agreed; the Reports page shows the agreement rate. Tested against `claude-sonnet-5-5`; current models
+   reject non-default `temperature`, so none is sent.
 8. **Monitoring.** Done in the app: `/health/deep` and the System health panel (see "Monitoring"). Still to set up
    with the bank: container logs to the SIEM, and alerts wired to `/health/deep`.
 
