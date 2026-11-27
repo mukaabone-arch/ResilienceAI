@@ -355,6 +355,15 @@ def batch_readiness(event_id: UUID, data: sc.ReadinessUpdateIn, ctx: Ctx = D):
     return out
 
 
+@router.get("/ops/status", tags=["ops"], summary="System health for administrators, risk and audit")
+def ops_status(ctx: Ctx = D):
+    from ..authz import require_role
+    from ..domain.enums import Role
+    from ..services import ops
+    require_role(ctx, Role.ADMIN, Role.RISK, Role.AUDITOR)
+    return ops.deep_status()
+
+
 @router.get("/break-glass/sessions", tags=["auth"], summary="Open break-glass sessions (administration, risk, audit)")
 def break_glass_sessions(ctx: Ctx = D):
     from ..authz import require_role

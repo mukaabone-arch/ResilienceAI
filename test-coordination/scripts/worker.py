@@ -4,7 +4,8 @@ Usage:  python -m scripts.worker            (runs every minute until stopped)
         python -m scripts.worker --once     (one pass, e.g. from cron)
 
 Jobs: scan evidence stored while the malware scanner was unreachable, add the model's view to evidence pre-checks, deliver queued notifications, escalate overdue acknowledgements and
-activities, and write a status summary for each live test every 30 minutes.
+activities, write a status summary for each live test every 30 minutes, re-verify each organisation's audit trail
+every AUDIT_VERIFY_HOURS, and record a heartbeat for monitoring (GET /health/deep).
 Each job is safe to run repeatedly; production would schedule these with
 Temporal (spec §22) instead of this loop.
 """
@@ -20,6 +21,7 @@ from app.ai.prechecks import run_model_pending
 from app.ai.service import run_live_summaries
 from app.db import worker_engine
 from app.services.evidence import rescan_pending
+from app.services import ops
 from app.services.notifications import dispatch_all_tenants
 from app.services.people import run_escalations
 
@@ -38,6 +40,9 @@ def one_pass() -> dict:
         out["summaries"] += run_live_summaries(tid)
     d = dispatch_all_tenants()          # after the jobs, so their messages go out in the same pass
     out.update(sent=d.sent, failed=d.failed, dead=d.dead)
+    with worker_engine().begin() as c:  # for monitoring: re-verify audit trails when due, then the heartbeat
+        out["audit_verified"] = len(ops.verify_audit_chains(c))
+        ops.record_worker_pass(c, dict(out))
     return out
 
 

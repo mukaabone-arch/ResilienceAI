@@ -671,6 +671,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .lesson-actions { margin-top: 8px; justify-content: flex-start; }
 .learned { font-size: var(--t-xs); color: #5b3a8a; font-weight: 600; margin-top: 2px; }
 
+/* ---------- System health ---------- */
+.health-sum { font-weight: 700; margin: 0 0 10px; }
+.health-sum.ok { color: var(--ready); }
+.health-sum.warn { color: var(--waiting); }
+.health-sum.fail { color: var(--blocked); }
+.health { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.health li { display: grid; grid-template-columns: 12px 150px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: var(--t-sm); }
+.health-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ready); transform: translateY(-1px); }
+.health li.warn .health-dot { background: var(--waiting); }
+.health li.fail .health-dot { background: var(--blocked); }
+.health-name { font-weight: 600; color: var(--ink); }
+.health-msg { color: var(--ink-2); }
+@media (max-width: 600px) { .health li { grid-template-columns: 12px minmax(0, 1fr); } .health-msg { grid-column: 2; } }
+
 /* ---------- Break-glass ---------- */
 .shell.has-bg { grid-template-rows: auto 1fr; --bg-h: 40px; }
 .shell.has-bg .rail { top: var(--bg-h); height: calc(100vh - var(--bg-h)); }
