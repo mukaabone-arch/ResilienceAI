@@ -3,7 +3,7 @@
 Usage:  python -m scripts.worker            (runs every minute until stopped)
         python -m scripts.worker --once     (one pass, e.g. from cron)
 
-Jobs: deliver queued notifications, escalate overdue acknowledgements and
+Jobs: scan evidence stored while the malware scanner was unreachable, deliver queued notifications, escalate overdue acknowledgements and
 activities, and write a status summary for each live test every 30 minutes.
 Each job is safe to run repeatedly; production would schedule these with
 Temporal (spec §22) instead of this loop.
@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from app.ai.service import run_live_summaries
 from app.db import worker_engine
+from app.services.evidence import rescan_pending
 from app.services.notifications import dispatch_all_tenants
 from app.services.people import run_escalations
 
@@ -25,8 +26,11 @@ from app.services.people import run_escalations
 def one_pass() -> dict:
     with worker_engine().connect() as c:
         tenants = [r[0] for r in c.execute(text("SELECT id FROM tenants"))]
-    out = {"escalations": 0, "summaries": 0}
+    out = {"escalations": 0, "summaries": 0, "scanned": 0, "quarantined": 0}
     for tid in tenants:
+        sc = rescan_pending(tid)                 # first, so a quarantine notice goes out in this pass
+        out["scanned"] += sc["clean"] + sc["infected"]
+        out["quarantined"] += sc["infected"]
         e = run_escalations(tid)
         out["escalations"] += e["ack_escalations"] + e["overdue_escalations"]
         out["summaries"] += run_live_summaries(tid)

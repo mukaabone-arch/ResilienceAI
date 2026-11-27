@@ -342,8 +342,10 @@ def readiness_summary(ctx: Ctx, event_id: UUID) -> dict:
 # Evidence (RA-057/058). Files go to encrypted object storage via a presigned
 # upload; this API records metadata and integrity checksum only.
 # ---------------------------------------------------------------------------
-def submit_evidence(ctx: Ctx, *, activity_id: UUID | None = None, readiness_item_id: UUID | None = None,
-                    data: dict) -> dict:
+def check_can_submit_evidence(ctx: Ctx, *, activity_id: UUID | None = None, readiness_item_id: UUID | None = None,
+                              supersedes_id: UUID | None = None) -> dict:
+    """Every rule for submitting evidence here, checked before anything is stored (an upload to a retention-locked
+    store can't be taken back). Returns the event."""
     if activity_id:
         target, ev = child_of_event(ctx, "test_activities", activity_id)
         allowed = _is_activity_owner(ctx, target)
@@ -354,19 +356,27 @@ def submit_evidence(ctx: Ctx, *, activity_id: UUID | None = None, readiness_item
         raise Forbidden("Only the owner or test manager can submit evidence here")
     if S(ev["lifecycle_status"]) in (S.CLOSED, S.CANCELLED, S.DRAFT):
         raise Conflict(f"Evidence cannot be submitted while the event is {ev['lifecycle_status']}")
+    if supersedes_id:
+        prev = row(ctx, "test_evidence", supersedes_id)
+        if prev["event_id"] != ev["id"] or prev["review_status"] != "Rejected":
+            raise Unprocessable("Only rejected evidence from this event can be superseded")
+    return ev
+
+
+def submit_evidence(ctx: Ctx, *, activity_id: UUID | None = None, readiness_item_id: UUID | None = None,
+                    data: dict) -> dict:
+    ev = check_can_submit_evidence(ctx, activity_id=activity_id, readiness_item_id=readiness_item_id,
+                                   supersedes_id=data.get("supersedes_id"))
     if data.get("checksum") and not SHA256.match(data["checksum"]):
         raise Unprocessable("checksum must be a lowercase hex SHA-256 digest")
     evd = t("test_evidence")
-    if data.get("supersedes_id"):
-        prev = row(ctx, "test_evidence", data["supersedes_id"])
-        if prev["event_id"] != ev["id"] or prev["review_status"] != "Rejected":
-            raise Unprocessable("Only rejected evidence from this event can be superseded")
     code = f"{ev['event_code']}-EV-{next_seq(ctx, 'EV-' + ev['event_code']):03d}"
     out = dict(ctx.conn.execute(insert(evd).values(
         tenant_id=ctx.me.tenant_id, event_id=ev["id"], activity_id=activity_id, readiness_item_id=readiness_item_id,
         evidence_code=code, submitted_by=ctx.me.user_id,
         **{k: data.get(k) for k in ("evidence_type", "storage_reference", "filename", "checksum", "supersedes_id")},
-        **{k: data[k] for k in ("storage_backend", "size_bytes", "content_type", "scan_status") if k in data}
+        **{k: data[k] for k in ("storage_backend", "size_bytes", "content_type", "scan_status", "scan_engine",
+                                "scan_detail", "scanned_at", "encryption", "retain_until") if k in data}
     ).returning(evd)).mappings().one())
     audit.record(ctx, "evidence.submitted", "Evidence", out["id"], event_id=ev["id"], new=out)
     return out
@@ -386,6 +396,9 @@ def review_evidence(ctx: Ctx, evidence_id: UUID, accept: bool, comment: str | No
         raise Conflict(f"Evidence already {item['review_status']}")
     if not accept and not comment:
         raise Unprocessable("A comment is required when rejecting evidence")
+    if accept and item["scan_status"] in ("Pending", "Infected"):
+        raise Conflict("This file can't be accepted: " + ("it is still waiting for its malware scan."
+                       if item["scan_status"] == "Pending" else "it was quarantined by the malware scan."))
     evd = t("test_evidence")
     new = dict(ctx.conn.execute(update(evd).where(evd.c.id == evidence_id).values(
         review_status="Accepted" if accept else "Rejected", review_comment=comment,

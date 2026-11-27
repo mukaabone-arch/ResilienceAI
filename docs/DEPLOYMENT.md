@@ -50,7 +50,11 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `DATABASE_URL` | api | local socket | Restricted `app_user` login |
 | `WORKER_DATABASE_URL` | migrate, worker, demo, api* | local socket | Table owner. *The API uses it only for the dev sign-in directory; don't set it on the API in production |
 | `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` | compose | none | Required. The DB init script creates `app_user` with the second |
-| `EVIDENCE_STORE` | api | `local` | Production: encrypted object storage |
+| `EVIDENCE_STORE` | api, worker | `local` | `s3` in production: any S3-compatible store (see "Evidence storage and malware scanning") |
+| `EVIDENCE_S3_BUCKET`, `EVIDENCE_S3_ENDPOINT`, `EVIDENCE_S3_REGION`, `EVIDENCE_S3_PREFIX` | api, worker | none, AWS, `ap-south-1`, `evidence/` | Endpoint only for a non-AWS store (MinIO, others) |
+| `EVIDENCE_S3_SSE`, `EVIDENCE_S3_KMS_KEY_ID` | api | `aws:kms`, none | Server-side encryption for every object; `AES256` where KMS isn't available |
+| `EVIDENCE_RETENTION_DAYS`, `EVIDENCE_RETENTION_MODE` | api | `0`, `COMPLIANCE` | Object Lock retention for each file; the bucket must have Object Lock enabled |
+| `SCANNER`, `CLAMD_HOST`, `CLAMD_PORT` | api, worker | `builtin`, `localhost`, `3310` | `clamav` in production |
 | `EVIDENCE_DIR` | api | `/data/evidence` in the image | Volume `evidence` in compose |
 | `EVIDENCE_MAX_MB` | api | `25` | Keep in step with the web proxy limit (30 MB) |
 | `AI_PROVIDER` | api, worker | `rules` | `anthropic` lets Claude reword suggestions; facts and fallback stay rule-based |
@@ -174,13 +178,58 @@ TEAMS_WEBHOOK_URL=<workflow URL>
 Failed deliveries are retried with back-off up to `NOTIFICATION_MAX_ATTEMPTS`, then marked Dead with the error kept
 on the job. People's channel preferences are respected, except for escalations and critical messages.
 
+## Evidence storage and malware scanning
+
+Production keeps evidence files in **S3-compatible object storage** (AWS S3, or MinIO or another S3-compatible store
+on the bank's premises) and scans every upload with **ClamAV**. File contents never go into the database.
+
+| Protection | How |
+|---|---|
+| Encryption at rest | Every object is written with server-side encryption: `aws:kms` with the bank's key, or `AES256` |
+| Integrity | SHA-256 taken in the browser and on the server, sent with the write (the store rejects a corrupted body) and checked on every download; a changed file is never served |
+| Retention | Object Lock retain-until date on every file (`EVIDENCE_RETENTION_DAYS`). In `COMPLIANCE` mode no one, administrators and the cloud account's root included, can delete or overwrite it before then |
+| Legal hold | Risk and compliance, audit or the programme administrator can place a hold with a reason; the file is kept until it's released. Shown in the Evidence tab and recorded in the audit trail |
+| Malware | Infected uploads are refused and never stored. If ClamAV can't be reached, the file is stored but can't be opened or accepted until the worker scans it; a file found infected then is quarantined (tagged, never served) and the submitter and test manager are told |
+
+Before anything is written, every submission rule (who may submit, the test's stage) is checked, so a refused upload
+never leaves an undeletable object behind.
+
+### Set up the bucket (bank's cloud or storage team)
+
+1. Create the bucket **with Object Lock enabled** (it can only be turned on at creation on many stores; versioning
+   comes with it). Default encryption: SSE-KMS with a key ResilienceAI's role may use.
+2. Block all public access. Give ResilienceAI's role only `s3:PutObject`, `s3:GetObject`, `s3:PutObjectLegalHold`,
+   `s3:GetObjectLegalHold`, `s3:PutObjectTagging`, `s3:PutObjectRetention`, `s3:GetBucketObjectLockConfiguration` and
+   `s3:ListBucket` on that bucket, plus `kms:GenerateDataKey` and `kms:Decrypt` on the key. No delete permissions.
+3. Agree the retention period with the bank's records policy, e.g. 2555 days (7 years).
+
+```bash
+# .env
+EVIDENCE_STORE=s3
+EVIDENCE_S3_BUCKET=bank-resilience-evidence
+EVIDENCE_S3_KMS_KEY_ID=arn:aws:kms:ap-south-1:123456789012:key/...
+EVIDENCE_RETENTION_DAYS=2555
+SCANNER=clamav
+CLAMD_HOST=<clamd host>
+```
+
+`GET /ready` returns 503 if the bucket can't be reached or Object Lock isn't on, so the load balancer won't send
+traffic to a misconfigured API. Files uploaded before the switch stay readable from their original store.
+
+### Try it on one machine
+
+`docker compose --profile secure-storage up -d` adds MinIO (bucket created with Object Lock) and ClamAV, using the
+values listed in `.env.example`. ClamAV's first virus-definitions download takes a few minutes; until it's ready,
+uploads are held as *waiting for malware scan* and the worker scans them once it is.
+
 ## Production guard
 
 With `APP_ENV=production` the API refuses to start, naming every problem, if:
 
 - `AUTH_MODE=dev` (anyone could act as anyone), or `AUTH_MODE=oidc` without `ENTRA_CLIENT_ID` and `ENTRA_TENANT_ID`,
 - `DATABASE_URL` still has a development password,
-- `EVIDENCE_STORE=local` (evidence on a container disk),
+- `EVIDENCE_STORE=local` (evidence on a container disk), `s3` without a bucket, or `aws:kms` without a key,
+- `EVIDENCE_RETENTION_DAYS=0` (evidence could be deleted), or `SCANNER` other than `clamav`,
 - `NOTIFY_MODE=m365` without the Graph credentials and sender.
 
 `GET /health` says the process is up; `GET /ready` returns 503 until the database answers. Point the load balancer at `/ready`.
@@ -193,7 +242,7 @@ The compose file is a complete single-host deployment for demos and internal tes
 2. **Secrets.** Database passwords and the Anthropic key from the bank's vault, not a `.env` file.
 3. **TLS.** A reverse proxy or ingress in front of `web` (the API is reached only through the web app). Uvicorn runs with `--proxy-headers`.
 4. **Managed PostgreSQL** with automated backups, point-in-time recovery and a tested restore. Back up the evidence store with the same retention.
-5. **Evidence storage.** An object-store backend for `app/services/storage.py` with server-side encryption and retention lock, plus a real malware scanner in place of the EICAR hook.
+5. **Evidence storage.** Done: S3-compatible storage with encryption, Object Lock retention and legal hold, and ClamAV scanning (see above). Still to agree with the bank: the retention period and the KMS key.
 6. **Worker scheduling.** One worker replica (or `python -m scripts.worker --once` from a scheduler every minute). The live-summary slot index makes duplicates harmless, but notifications are delivered by whichever worker claims them.
 7. **Assistant.** Keep `AI_PROVIDER=rules` until the bank approves sending pseudonymised text to the Claude API; every suggestion is logged in `ai_activity_records` either way.
 8. **Monitoring.** Container logs to the bank's SIEM; alerts on `/ready`, failed notification jobs and audit-chain verification.

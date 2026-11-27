@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest>=8
 ruff>=0.6,<0.17
+moto[s3,server]>=5     # S3 stand-in for tests

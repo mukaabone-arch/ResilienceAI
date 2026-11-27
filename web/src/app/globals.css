@@ -311,6 +311,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .task-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
+/* ---------- Evidence safety line ---------- */
+.safety { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px; }
+.safe { color: var(--ink-3); }
+.safe.ok { color: var(--ready); font-weight: 600; }
+.safe.wait { color: var(--waiting); font-weight: 600; }
+.safe.bad { color: var(--blocked); font-weight: 600; }
+.safe.hold { color: #5b3a8a; font-weight: 600; }
+.protect-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+
 /* ---------- One-tap acknowledgement ---------- */
 .ack-page { max-width: 620px; margin: 24px auto 0; }
 .ack-card { padding: 28px 30px; }
