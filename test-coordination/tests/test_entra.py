@@ -138,10 +138,10 @@ def test_auth_config_and_dev_directory(client, oidc, monkeypatch):
     cfg = client.get("/api/v1/auth/config").json()
     assert cfg == {"mode": "oidc", "provider": "entra", "client_id": CLIENT_ID,
                    "authority": f"https://login.microsoftonline.com/{ENTRA_TID}",
-                   "scopes": [f"api://{CLIENT_ID}/access_as_user"]}
+                   "scopes": [f"api://{CLIENT_ID}/access_as_user"], "break_glass": False}
     assert client.get("/api/v1/dev/directory").status_code == 404
     monkeypatch.setattr(config, "settings", replace(config.settings, auth_mode="dev"))
-    assert client.get("/api/v1/auth/config").json() == {"mode": "dev"}
+    assert client.get("/api/v1/auth/config").json() == {"mode": "dev", "break_glass": False}
 
 
 def test_production_needs_entra_settings():

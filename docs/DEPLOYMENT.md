@@ -48,6 +48,7 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `ENTRA_CLIENT_ID` | api | none | Application (client) id of the ResilienceAI app registration |
 | `ENTRA_ROLES_FROM_TOKEN` | api | `true` | Entra app roles in the token replace the person's stored roles at sign-in |
 | `ENTRA_BIND_BY_EMAIL` | api | `true` | Link a person provisioned by email to their Entra account at first sign-in |
+| `BREAK_GLASS`, `BREAK_GLASS_MINUTES` | api | `off`, `60` | Emergency access when Entra is unavailable (see "Break-glass access"); sessions last 15 to 240 minutes |
 | `DATABASE_URL` | api | local socket | Restricted `app_user` login |
 | `WORKER_DATABASE_URL` | migrate, worker, demo, api* | local socket | Table owner. *The API uses it only for the dev sign-in directory; don't set it on the API in production |
 | `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` | compose | none | Required. The DB init script creates `app_user` with the second |
@@ -124,6 +125,39 @@ administrator; nothing is created for them automatically.
   person at first sign-in; an already-linked person can't be claimed by another account with the same email.
 - The API's database login can't read other organisations, so it finds the organisation through a single
   database function (`tenant_for_entra`) that answers only that question.
+
+### Break-glass access (when Entra is unavailable)
+
+If Microsoft Entra ID is down during a test window, named **break-glass holders** can still get in. Turn it on with
+`BREAK_GLASS=on` and create at least two holders per organisation (operations, with the owner database login):
+
+```bash
+docker compose run --rm migrate python -m scripts.breakglass add BANK priya.nair@bank.example "Priya Nair"
+docker compose run --rm migrate python -m scripts.breakglass add BANK omar.shah@bank.example "Omar Shah" RiskCompliance
+docker compose run --rm migrate python -m scripts.breakglass list BANK
+```
+
+Each `add` prints a passphrase and an authenticator secret (with an `otpauth://` link for any authenticator app)
+**once**. Hand them over in person or seal them in the bank's vault. The default role is programme administrator.
+
+How it works:
+
+1. The sign-in page shows **Emergency access** (`/break-glass`). A holder enters the organisation code, their email,
+   passphrase, a current authenticator code and the reason (for example the Entra incident number). They get a
+   request code such as `7K3Q-M9PD`.
+2. They phone a **second holder**, who approves that code on their own device with their own passphrase and code.
+   Nobody can approve their own request; a request expires after 15 minutes.
+3. The session lasts `BREAK_GLASS_MINUTES`, with a red banner on every page showing who it is and when it ends.
+   **End session** stops it early.
+
+Safeguards: the holder acts as a separate person record ("Priya Nair (break-glass)"), so every action is attributed
+to the break-glass identity; every request, approval, refusal, failed attempt and ending is in the audit trail and
+logged at WARNING for the SIEM; five wrong attempts lock the account for 30 minutes; an authenticator code works
+once; errors never say which detail was wrong; the passphrase is stored only as a salted scrypt hash. Risk,
+audit and administrators can see open sessions (`GET /api/v1/break-glass/sessions`).
+
+After any use: review the session in the audit trail, then `python -m scripts.breakglass rotate BANK <email>` for
+both holders. `disable` stops a holder at once and ends their sessions.
 
 ## Teams and Outlook notifications
 

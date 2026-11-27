@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import type { AccountInfo } from "@azure/msal-browser";
 import { api, useApi } from "@/lib/api";
-import { initEntra, loadAuthConfig, signInWithMicrosoft, signOut } from "@/lib/auth";
+import { BreakGlass, endBreakGlass, getBreakGlass, initEntra, loadAuthConfig, signInWithMicrosoft, signOut } from "@/lib/auth";
+import { BreakGlassBanner, BreakGlassPage } from "./BreakGlass";
 import { roleName } from "@/lib/format";
 import { MeContext } from "@/lib/me";
 import { getSession, Session, setSession } from "@/lib/session";
@@ -45,7 +46,7 @@ type AuthState =
   | { kind: "loading" }
   | { kind: "unreachable" }
   | { kind: "dev"; session: Session | null }
-  | { kind: "sso"; account: AccountInfo | null; error?: string };
+  | { kind: "sso"; account: AccountInfo | null; error?: string; breakGlass?: boolean };
 
 function friendlySignInError(e: unknown): string {
   const code = (e as { errorCode?: string })?.errorCode ?? "";
@@ -56,7 +57,15 @@ function friendlySignInError(e: unknown): string {
 }
 
 export function AppFrame({ children }: { children: ReactNode }) {
+  const path = usePathname();
   const [auth, setAuth] = useState<AuthState>({ kind: "loading" });
+  const [bg, setBg] = useState<BreakGlass | null>(null);
+  useEffect(() => {
+    const sync = () => setBg(getBreakGlass());
+    sync();
+    window.addEventListener("resilienceai-breakglass", sync);
+    return () => window.removeEventListener("resilienceai-breakglass", sync);
+  }, []);
   useEffect(() => {
     let live = true;
     const syncDev = () => live && setAuth({ kind: "dev", session: getSession() });
@@ -69,18 +78,22 @@ export function AppFrame({ children }: { children: ReactNode }) {
         }
         try {
           const account = await initEntra(cfg);
-          if (live) setAuth({ kind: "sso", account });
+          if (live) setAuth({ kind: "sso", account, breakGlass: cfg.break_glass });
         } catch (e) {
-          if (live) setAuth({ kind: "sso", account: null, error: friendlySignInError(e) });
+          if (live) setAuth({ kind: "sso", account: null, error: friendlySignInError(e), breakGlass: cfg.break_glass });
         }
       })
       .catch(() => live && setAuth({ kind: "unreachable" }));
     return () => { live = false; window.removeEventListener("resilienceai-session", syncDev); };
   }, []);
+  // Emergency access works without Microsoft (and without the rest of the app's sign-in).
+  if (path === "/break-glass") return <BreakGlassPage />;
+  if (bg?.status === "Active") return <Shell key={"bg" + bg.request_code} breakGlass={bg}>{children}</Shell>;
   if (auth.kind === "loading") return null;
   if (auth.kind === "unreachable") return <SignIn />;   // shows how to start the API
   if (auth.kind === "sso") {
-    return auth.account ? <Shell key={auth.account.homeAccountId} sso>{children}</Shell> : <MicrosoftSignIn error={auth.error} />;
+    return auth.account ? <Shell key={auth.account.homeAccountId} sso>{children}</Shell>
+      : <MicrosoftSignIn error={auth.error} breakGlass={auth.breakGlass} />;
   }
   if (!auth.session) return <SignIn />;
   return <Shell key={auth.session.subject + auth.session.tenantId}>{children}</Shell>;
@@ -119,16 +132,17 @@ function useSmallScreenHelpers() {
   }, []);
 }
 
-function Shell({ children, sso = false }: { children: ReactNode; sso?: boolean }) {
+function Shell({ children, sso = false, breakGlass }: { children: ReactNode; sso?: boolean; breakGlass?: BreakGlass }) {
   const path = usePathname();
   useSmallScreenHelpers();
   const { data: me, error } = useApi<any>("/me");
   const { data: ws } = useApi<any>(me ? "/me/workspace" : null);
   const denied = error?.status === 403 || error?.status === 401;
   useEffect(() => {
+    if (denied && breakGlass) { endBreakGlass(); return; }   // the session ended or expired
     if (denied && !sso) setSession(null);   // dev: the chosen person no longer exists (e.g. demo data reloaded)
-  }, [denied, sso]);
-  if (denied && sso) return <AccessProblem message={error!.message} />;
+  }, [denied, sso, breakGlass]);
+  if (denied && sso && !breakGlass) return <AccessProblem message={error!.message} />;
   const due = ws ? ws.overdue.length + ws.pending_acknowledgements.length : 0;
   const isPortfolio = me?.roles?.some((r: string) => PORTFOLIO_ROLES.includes(r));
   const nav = [
@@ -139,7 +153,8 @@ function Shell({ children, sso = false }: { children: ReactNode; sso?: boolean }
     ...(isPortfolio ? [{ href: "/command", label: "Command centre" }] : []),
   ];
   return (
-    <div className="shell">
+    <div className={breakGlass ? "shell has-bg" : "shell"}>
+      {breakGlass && <BreakGlassBanner bg={breakGlass} name={me?.display_name} />}
       <aside className="rail">
         <Link href="/workspace" className="brand">
           <BrandMark />
@@ -162,7 +177,9 @@ function Shell({ children, sso = false }: { children: ReactNode; sso?: boolean }
               <div className="role">{me.roles.map(roleName).join(", ")}</div>
             </>
           )}
-          {sso
+          {breakGlass
+            ? <button type="button" onClick={async () => { await endBreakGlass(); window.location.assign("/"); }}>End session</button>
+            : sso
             ? <button type="button" onClick={() => signOut()}>Sign out</button>
             : <button type="button" onClick={() => setSession(null)}>Switch person</button>}
         </div>
@@ -198,7 +215,7 @@ function MicrosoftLogo() {
   );
 }
 
-function MicrosoftSignIn({ error }: { error?: string }) {
+function MicrosoftSignIn({ error, breakGlass }: { error?: string; breakGlass?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(error);
   async function go() {
@@ -216,6 +233,7 @@ function MicrosoftSignIn({ error }: { error?: string }) {
           <button type="button" className="ms-btn" onClick={go} disabled={busy}>
             <MicrosoftLogo />{busy ? "Opening Microsoft sign-in…" : "Sign in with Microsoft"}
           </button>
+          {breakGlass && <p className="xs muted bg-link">Microsoft sign-in down? <a href="/break-glass">Emergency access</a> for break-glass holders.</p>}
         </div>
       </section>
     </div>

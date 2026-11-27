@@ -73,7 +73,15 @@ class Settings:
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     ai_model: str = os.getenv("AI_MODEL", "claude-sonnet-5-5")
     ai_timeout_s: float = float(os.getenv("AI_TIMEOUT_S", "20"))
+    # Break-glass access for when Microsoft Entra ID is unavailable: named holders, a passphrase and an authenticator
+    # code, a second holder's approval, and a time limit. Off unless the bank turns it on.
+    break_glass: str = os.getenv("BREAK_GLASS", "off")
+    break_glass_minutes: int = int(os.getenv("BREAK_GLASS_MINUTES", "60"))
 
+
+    @property
+    def break_glass_on(self) -> bool:
+        return self.break_glass.lower() in ("on", "true", "1", "yes")
 
     @property
     def entra_audiences(self) -> list[str]:
@@ -99,6 +107,8 @@ def check_production(s: Settings = settings) -> list[str]:
         problems.append("DATABASE_URL uses the development password")
     if s.auth_mode == "oidc" and not (s.entra_client_id and s.entra_tenant_id):
         problems.append("AUTH_MODE=oidc needs ENTRA_CLIENT_ID and ENTRA_TENANT_ID")
+    if s.break_glass_on and not 15 <= s.break_glass_minutes <= 240:
+        problems.append("BREAK_GLASS_MINUTES must be between 15 and 240")
     if s.notify_mode == "m365" and not (s.graph_tenant_id and s.graph_client_id and s.graph_client_secret and s.graph_sender):
         problems.append("NOTIFY_MODE=m365 needs GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET and GRAPH_SENDER")
     if s.evidence_store == "local":
