@@ -31,7 +31,8 @@ LOG_TEXT = {
     "complete": "Coordination completed; closure started", "abort": "Test stopped (outcome: aborted)",
     "close": "Test formally closed", "cancel": "Test cancelled",
 }
-EDITABLE_FIELDS = ("title", "description", "objectives", "business_impact", "criticality", "test_manager_user_id")
+EDITABLE_FIELDS = ("title", "description", "objectives", "business_impact", "criticality", "test_manager_user_id",
+                   "rto_target_minutes", "rpo_target_minutes")
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +178,8 @@ def create_event(ctx: Ctx, data: dict, *, series: tuple | None = None) -> dict:
     e = t("test_events")
     fields = {k: data.get(k) for k in ("programme_id", "template_id", "title", "description", "objectives",
                                        "business_impact", "category", "criticality", "planned_start_at",
-                                       "planned_end_at", "test_manager_user_id")}
+                                       "planned_end_at", "test_manager_user_id", "rto_target_minutes",
+                                       "rpo_target_minutes")}
     ev = dict(ctx.conn.execute(insert(e).values(
         tenant_id=ctx.me.tenant_id, event_code=code, timezone=data.get("timezone", "UTC"),
         series_id=series[0] if series else None, series_index=series[1] if series else None,

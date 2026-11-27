@@ -61,13 +61,15 @@ def main() -> None:
         "template_key": "core-banking-dr", "name": "Core Banking DR Simulation", "category": "Application",
         "default_duration": 360, "definition": CORE_BANKING_TEMPLATE})
 
-    def new_event(title, category, criticality, start, hours=6, template=True, manager="meera.tm", owner="vikram.owner"):
+    def new_event(title, category, criticality, start, hours=6, template=True, manager="meera.tm", owner="vikram.owner",
+                  rto=None, rpo=None):
         return api("arjun.pm", "POST", "/test-events", {
             "programme_id": prog["id"], "template_id": tpl["id"] if template else None, "title": title,
             "category": category, "criticality": criticality, "timezone": "Asia/Kolkata",
             "planned_start_at": start.isoformat(), "planned_end_at": (start + timedelta(hours=hours)).isoformat(),
             "owner_user_id": u[owner], "test_manager_user_id": u[manager],
-            "business_service_ids": [u["svc_cbs"]] if template else []})
+            "business_service_ids": [u["svc_cbs"]] if template else [],
+            "rto_target_minutes": rto, "rpo_target_minutes": rpo})
 
     def mobilise(ev, people):
         eid = ev["id"]
@@ -101,7 +103,8 @@ def main() -> None:
               "TV-01": "deepa.app", "BV-01": "farah.biz"}
 
     # 1. Core Banking — Readiness, DB blocked -----------------------------------
-    cb = new_event("Core Banking DR Simulation", "Application", "Critical", NOW + timedelta(days=5, hours=13))
+    cb = new_event("Core Banking DR Simulation", "Application", "Critical", NOW + timedelta(days=5, hours=13),
+                   rto=240, rpo=15)
     st = mobilise(cb, people)
     acts = assign(cb["id"], st, owners)
     for sub in ("anita.infra", "kiran.net", "rahul.dba", "deepa.app", "farah.biz", "sana.lead"):
@@ -134,7 +137,8 @@ def main() -> None:
         "activity_id": acts["DB-01"]["id"], "owner_user_id": u["ext.vendor"]})
 
     # 2. Payments — Ready, awaiting go ------------------------------------------
-    pay = new_event("Payments Gateway Failover", "Infrastructure", "High", NOW + timedelta(days=2, hours=17), hours=4, template=False)
+    pay = new_event("Payments Gateway Failover", "Infrastructure", "High", NOW + timedelta(days=2, hours=17), hours=4, template=False,
+                    rto=60, rpo=5)
     st2 = mobilise(pay, {"anita.infra": "Infrastructure lead", "kiran.net": "Network lead", "farah.biz": "Business validation"})
     for sub in st2:
         api(sub, "POST", f"/test-stakeholders/{st2[sub]['id']}/respond", {"accept": True})

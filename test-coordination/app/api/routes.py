@@ -423,6 +423,20 @@ def verify_evidence(evidence_id: UUID, ctx: Ctx = D):
     return evidence.verify(ctx, evidence_id)
 
 
+@router.post("/test-evidence/{evidence_id}/precheck", tags=["evidence"],
+             summary="Run the evidence pre-check again (rules, plus the model when enabled)")
+def rerun_precheck(evidence_id: UUID, ctx: Ctx = D):
+    from ..ai import prechecks
+    return prechecks.rerun(ctx, evidence_id)
+
+
+@router.post("/test-evidence/{evidence_id}/precheck/feedback", tags=["evidence"],
+             summary="Say whether one pre-check finding is right or wrong")
+def precheck_feedback(evidence_id: UUID, data: sc.PrecheckFeedbackIn, ctx: Ctx = D):
+    from ..ai import prechecks
+    return prechecks.feedback(ctx, evidence_id, data.key, data.verdict, data.note)
+
+
 @router.post("/test-evidence/{evidence_id}/review", tags=["evidence"])
 def review_evidence(evidence_id: UUID, data: sc.ReviewIn, ctx: Ctx = D):
     return work.review_evidence(ctx, evidence_id, data.accept, data.comment)

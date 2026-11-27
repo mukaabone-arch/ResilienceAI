@@ -222,6 +222,42 @@ traffic to a misconfigured API. Files uploaded before the switch stay readable f
 values listed in `.env.example`. ClamAV's first virus-definitions download takes a few minutes; until it's ready,
 uploads are held as *waiting for malware scan* and the worker scans them once it is.
 
+## Evidence pre-checks
+
+Every uploaded file that can be read (text and log files, CSV, JSON, XML, email, PDF, Word, Excel, PowerPoint) is
+checked against the activity or readiness condition it was submitted for, as soon as it is stored and scanned clean.
+The result appears on the file in the Evidence tab, and in the upload dialog when something needs a look.
+
+| Check | How | Needs a model? |
+|---|---|---|
+| Dates | Latest date in the file against the test window (from `EVIDENCE_LOOKBACK_DAYS` before the start to the upload) | No |
+| Recovery point / time | Explicit figures (`apply lag`, `RPO achieved`) or the gap between logged events, against the test's RTO and RPO targets | No |
+| Environment | Host names and banners that look like UAT, SIT, staging or test systems | No |
+| Reuse | Same SHA-256 as another evidence file, in this test or an earlier one | No |
+| Sensitive data | Card numbers (Luhn), Aadhaar numbers (Verhoeff), PANs, passwords, keys, connection strings | No |
+| Relevance | Rules: key terms from the activity. Model: a judgement with cited lines | Optional |
+| Reviewer briefing | Rules: a summary. Model: what the file shows and what seems to be missing | Optional |
+
+Set the RTO and RPO targets when creating a test, or later on its Overview tab (`rto_target_minutes`,
+`rpo_target_minutes` on the API); recorded measurement targets are used when these aren't set.
+
+How it stays safe:
+
+- **It never decides.** Accepting a file that has open warnings needs a note from the reviewer. The pre-check is
+  logged in the AI oversight log, closed with the reviewer's decision, and marked as agreed or not, so the bank can
+  measure how often it is right.
+- **People can correct it.** The submitter or a reviewer can mark a finding *Not right* with a reason; it then no
+  longer counts as a warning, and the note is kept.
+- **Nothing sensitive is repeated.** Every excerpt is masked before it is stored or shown.
+- **The model sees as little as possible.** With `AI_PROVIDER=anthropic`, the worker sends at most ~14,000
+  characters of masked lines, with people's names replaced. Its answer is used only if it is valid JSON, every
+  citation matches a line that was sent, it names no record that wasn't there, and it doesn't recommend accepting or
+  rejecting. Otherwise the rule-based result stands and the reason is logged. Uploads never wait for the model.
+- **It can't break an upload.** Any error in a pre-check is logged and skipped.
+
+Images can't be read here (no OCR); they get a note asking the reviewer to check them by eye.
+`EVIDENCE_PRECHECK=off` turns the feature off.
+
 ## Production guard
 
 With `APP_ENV=production` the API refuses to start, naming every problem, if:

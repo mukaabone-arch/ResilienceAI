@@ -36,7 +36,7 @@ def upload(ctx: Ctx, *, activity_id: UUID | None, readiness_item_id: UUID | None
         raise Unprocessable(f"The file was flagged by the malware scan ({verdict.detail}) and was not stored.")
     store = storage.store()
     saved = store.put(storage.object_key(ctx.me.tenant_id, ev["id"]), data)
-    return submit_evidence(ctx, activity_id=activity_id, readiness_item_id=readiness_item_id, data={
+    new = submit_evidence(ctx, activity_id=activity_id, readiness_item_id=readiness_item_id, data={
         "evidence_type": evidence_type, "storage_reference": saved.ref, "filename": name, "checksum": digest,
         "supersedes_id": supersedes_id, "storage_backend": store.backend, "size_bytes": len(data),
         "content_type": (content_type or "application/octet-stream")[:120], "scan_status": verdict.status,
@@ -44,6 +44,10 @@ def upload(ctx: Ctx, *, activity_id: UUID | None, readiness_item_id: UUID | None
         "scanned_at": now() if verdict.status in ("Clean", "NotScanned") else None,
         "encryption": saved.encryption, "retain_until": saved.retain_until,
     })
+    # Check the file against its activity straight away, so the uploader can fix problems before review.
+    from ..ai import prechecks
+    rec = prechecks.safe_run(ctx, new, ev, data, requested_by=ctx.me.user_id)
+    return {**new, "precheck": prechecks.present(ctx, rec, ev)}
 
 
 def _can_read_file(ctx: Ctx, item: dict, ev: dict) -> None:
@@ -131,9 +135,15 @@ def register(ctx: Ctx, event_id: UUID) -> list[dict]:
                            and x["scan_status"] not in ("Pending", "Infected") and (
             authz.can_manage_event(ctx, ev) or ctx.me.has(authz.Role.RISK) or x["reviewer_user_id"] == ctx.me.user_id))
 
+    from ..ai import prechecks
+    checks = prechecks.for_event(ctx, event_id)
     hold_ok = ctx.me.has(*LEGAL_HOLD_ROLES)
     for x in rows:
         x["can_legal_hold"] = hold_ok and x["storage_backend"] != "link"
+        x["precheck"] = prechecks.present(ctx, checks.get(x["id"]), ev)
+        x["can_precheck"] = (prechecks.enabled() and x["storage_backend"] != "link" and x["review_status"] == "Pending"
+                             and x["scan_status"] not in ("Pending", "Infected")
+                             and (x["submitted_by"] == ctx.me.user_id or x["can_review"]))
     return rows
 
 
@@ -206,5 +216,7 @@ def rescan_pending(tenant_id: UUID, limit: int = 50) -> dict:
             else:
                 audit.record(ctx, "evidence.scanned", "Evidence", item["id"], event_id=ev["id"], actor=None,
                              new={"scan_status": result.status, "engine": result.engine})
+                from ..ai import prechecks
+                prechecks.safe_run(ctx, {**item, "scan_status": result.status}, ev, data)
                 out["clean"] += 1
     return out

@@ -111,7 +111,8 @@ def list_for_event(ctx: Ctx, event_id: UUID) -> dict:
     ai, u = t("ai_activity_records"), t("users")
     rows = [dict(r) for r in ctx.conn.execute(
         select(ai, u.c.display_name.label("decided_by_name")).outerjoin(u, u.c.id == ai.c.decided_by)
-        .where(ai.c.event_id == event_id).order_by(ai.c.created_at.desc()).limit(100)).mappings()]
+        .where(and_(ai.c.event_id == event_id, ai.c.feature != "evidence_precheck"))
+        .order_by(ai.c.created_at.desc()).limit(100)).mappings()]
     latest: dict[str, dict] = {}
     for r in rows:
         key = r["feature"] + (":" + r["content"].get("kind", "") if r["feature"] == "message_draft" else "")

@@ -100,7 +100,7 @@ function useSmallScreenHelpers() {
         const heads = [...table.querySelectorAll("thead th")].map((th) => th.textContent?.trim() ?? "");
         table.querySelectorAll("tbody tr").forEach((tr) => {
           [...tr.children].forEach((td, i) => {
-            const label = heads[i] ?? "";
+            const label = (td as HTMLTableCellElement).colSpan > 1 ? "" : heads[i] ?? "";
             if ((td as HTMLElement).dataset.label !== label) (td as HTMLElement).dataset.label = label;
           });
         });

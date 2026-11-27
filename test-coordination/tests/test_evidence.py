@@ -92,7 +92,7 @@ def test_tampered_file_is_refused(as_, ev, temp_store):
 
 def test_readiness_upload_counts_once_accepted(as_, ev):
     tm = as_("meera.tm")
-    r = up(tm, f"/test-readiness-items/{ev['item']['id']}/evidence/upload", name="backup-report.pdf").json()
+    r = up(tm, f"/test-readiness-items/{ev['item']['id']}/evidence/upload", data=PDF + b"%backup report", name="backup-report.pdf").json()
     tm.patch(f"/test-readiness-items/{ev['item']['id']}", expect=200, json={"status": "Ready"})
     gate = tm.get(f"/test-events/{ev['ev']['id']}/readiness", expect=200).json()["gate"]
     assert any("evidence not yet accepted" in u for u in gate["unmet"])

@@ -608,3 +608,46 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .draft { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
 .recip { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; }
 .recip input { margin-top: 3px; }
+
+/* ---------- Evidence pre-check ---------- */
+.dialog.wide { width: min(680px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.dialog.wide .body { overflow-y: auto; }
+.linkish { background: none; border: 0; padding: 0; color: var(--action); font: inherit; font-size: var(--t-xs); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.linkish:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 3px; }
+.pc-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 4px; font-size: var(--t-xs); }
+.pc-tag { font-weight: 700; color: var(--ink-2); }
+.pc-head { font-weight: 600; }
+.pc-line.ok .pc-head { color: var(--ready); }
+.pc-line.warn .pc-head { color: var(--waiting); }
+.pc-line.info .pc-head, .pc-soft { color: var(--ink-3); }
+.pc-box { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(22, 35, 59, 0.1); max-width: 640px; }
+.pc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pc-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; font-size: var(--t-sm); }
+.pc-mark { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; font-weight: 800; margin-top: 1px; }
+.pc-item.ok .pc-mark { background: color-mix(in srgb, var(--ready) 16%, white); color: var(--ready); }
+.pc-item.warn .pc-mark { background: color-mix(in srgb, var(--waiting) 20%, white); color: var(--waiting); }
+.pc-item.info .pc-mark { background: rgba(22, 35, 59, 0.08); color: var(--ink-3); font-style: italic; font-family: Georgia, serif; }
+.pc-item.disputed .pc-title { text-decoration: line-through; text-decoration-color: var(--ink-3); color: var(--ink-3); }
+.pc-title { font-weight: 600; color: var(--ink); }
+.pc-by { margin-left: 6px; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: rgba(91, 58, 138, 0.12); color: #5b3a8a; vertical-align: 1px; }
+.pc-detail { color: var(--ink-2); font-size: var(--t-xs); margin-top: 2px; }
+.pc-cites { margin-top: 4px; display: grid; gap: 3px; }
+.pc-cite { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 6px; font-size: var(--t-xs); align-items: baseline; }
+.pc-ln { color: var(--ink-3); white-space: nowrap; }
+.pc-cite code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; background: rgba(22, 35, 59, 0.05); padding: 2px 6px; border-radius: 4px; overflow-wrap: anywhere; color: var(--ink-2); }
+.pc-disputed { font-size: var(--t-xs); color: #5b3a8a; margin-top: 3px; }
+.pc-brief { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(22, 35, 59, 0.08); font-size: var(--t-sm); color: var(--ink-2); }
+.pc-brief-h { font-weight: 700; color: var(--ink); font-size: var(--t-xs); margin-bottom: 3px; }
+.pc-brief p { margin: 0; }
+.pc-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px; }
+.pc-cols ul { margin: 2px 0 0; padding-left: 18px; }
+.pc-sub { font-size: var(--t-xs); color: var(--ink-3); font-weight: 600; }
+.pc-foot { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; font-size: var(--t-xs); color: var(--ink-3); }
+.pc-agree { color: var(--ready); font-weight: 600; }
+.pc-disagree { color: var(--waiting); font-weight: 600; }
+.pc-note { margin: 6px 0 0; font-size: 11px; color: var(--ink-3); }
+.rt-facts { display: flex; gap: 32px; margin: 0; font-size: var(--t-sm); }
+.rt-facts dt { color: var(--ink-3); }
+.rt-facts dd { margin: 2px 0 0; font-weight: 600; font-size: var(--t-md); }
+.pc-row > td { padding-top: 0 !important; border-top: 0 !important; }
+.pc-row .pc-box { margin-top: 0; max-width: 860px; }
