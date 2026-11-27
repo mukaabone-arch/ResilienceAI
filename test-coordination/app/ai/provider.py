@@ -22,6 +22,9 @@ from typing import Protocol
 from ..config import settings
 
 PROMPT_VERSION = "assistant-v1"
+# Current models think before answering and that counts toward max_tokens, so leave room. They also reject
+# non-default sampling settings (temperature, top_p, top_k) with a 400, so none are sent.
+MAX_TOKENS = 4000
 CODE = re.compile(r"\b[A-Z]{2,6}(?:-[A-Z0-9]{1,6})*-\d{2,4}(?:-[A-Z]?\d{2,4})*\b|\b[A-Z]{2,4}-\d{2}\b")
 
 
@@ -84,11 +87,13 @@ class AnthropicProvider:
             with httpx.Client(timeout=settings.ai_timeout_s, transport=self.transport) as c:
                 r = c.post("https://api.anthropic.com/v1/messages", headers={
                     "x-api-key": settings.anthropic_api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                    content=json.dumps({"model": settings.ai_model, "max_tokens": 900, "temperature": 0, "system": SYSTEM,
+                    content=json.dumps({"model": settings.ai_model, "max_tokens": MAX_TOKENS, "system": SYSTEM,
                                         "messages": [{"role": "user", "content": f"Feature: {feature}\n\nDraft:\n{safe}"}]}))
             if r.status_code != 200:
-                return Result(draft, "rules", settings.ai_model, f"model call failed ({r.status_code})")
-            out = "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
+                return Result(draft, "rules", settings.ai_model, api_error(r))
+            out, why = reply_text(r)
+            if why:
+                return Result(draft, "rules", settings.ai_model, why)
         except Exception as e:  # noqa: BLE001 - any failure falls back to the composer's text
             return Result(draft, "rules", settings.ai_model, f"model call failed ({type(e).__name__})")
         problem = check(out, safe, mapping)
@@ -109,6 +114,26 @@ def check(out: str, source: str, mapping: dict[str, str]) -> str | None:
     if stray:
         return "model introduced people not in the facts"
     return None
+
+
+def api_error(r) -> str:
+    """'model call failed (400: invalid_request_error: ...)' — the API's own reason, so it can be fixed; never the key."""
+    detail = ""
+    try:
+        err = r.json().get("error") or {}
+        detail = ": ".join(x for x in (err.get("type"), (err.get("message") or "")[:200]) if x)
+    except Exception:  # noqa: BLE001 - the body may not be JSON
+        pass
+    return f"model call failed ({r.status_code}{': ' + detail if detail else ''})"
+
+
+def reply_text(r) -> tuple[str, str | None]:
+    """The text of a Messages API reply, or ("", why) when there is none."""
+    body = r.json()
+    out = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
+    if not out and body.get("stop_reason") == "max_tokens":
+        return "", "model ran out of room before answering (max_tokens)"
+    return out, None
 
 
 def provider() -> Provider:

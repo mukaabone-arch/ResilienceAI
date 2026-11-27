@@ -32,7 +32,7 @@ from ..services import audit, storage
 from ..services.common import child_of_event, now, row
 from . import evidence_checks as chk
 from .evidence_text import Extracted, extract
-from .provider import CODE, pseudonymise, restore
+from .provider import CODE, MAX_TOKENS, api_error, pseudonymise, reply_text, restore
 
 PROMPT_VERSION = "evidence-precheck-v1"
 FEATURE = "evidence_precheck"
@@ -243,11 +243,13 @@ def model_pass(ctx: Ctx, c: dict, x: Extracted, findings: list[dict], transport=
         with httpx.Client(timeout=config.settings.ai_timeout_s, transport=transport or TRANSPORT) as cl:
             r = cl.post("https://api.anthropic.com/v1/messages", headers={
                 "x-api-key": config.settings.anthropic_api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                content=json.dumps({"model": config.settings.ai_model, "max_tokens": 900, "temperature": 0, "system": SYSTEM,
+                content=json.dumps({"model": config.settings.ai_model, "max_tokens": MAX_TOKENS, "system": SYSTEM,
                                     "messages": [{"role": "user", "content": safe}]}))
         if r.status_code != 200:
-            return None, f"model call failed ({r.status_code})"
-        raw = "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
+            return None, api_error(r)
+        raw, why = reply_text(r)
+        if why:
+            return None, why
     except Exception as e:  # noqa: BLE001 - any failure leaves the rule-based result in place
         return None, f"model call failed ({type(e).__name__})"
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw)

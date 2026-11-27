@@ -163,7 +163,7 @@ def test_claude_provider_hides_names_and_restores_them():
     p = prov.AnthropicProvider(transport=_fake("Person A should clear the DB-01 blocker; Person B should review the evidence for BANK-DR-2027-004.", seen=seen))
     r = p.rewrite("blocker_briefing", DRAFT, ["Rahul Das", "Meera Iyer"])
     sent = seen[0]["messages"][0]["content"]
-    assert "Rahul" not in sent and "Meera" not in sent and "Person A" in sent and seen[0]["temperature"] == 0
+    assert "Rahul" not in sent and "Meera" not in sent and "Person A" in sent and "temperature" not in seen[0]
     assert r.provider == "anthropic" and r.fallback_reason is None
     assert "Rahul Das should clear the DB-01 blocker" in r.text or "Meera Iyer should clear" in r.text
 
