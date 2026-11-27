@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, apiUpload, sha256Hex } from "@/lib/api";
 import { ErrorNotice } from "./ui";
+import { PrecheckDetails, openWarnings, type Precheck } from "./Precheck";
 
 const TYPES = [
   { value: "Report", label: "Report" }, { value: "Screenshot", label: "Screenshot" }, { value: "Log", label: "Log" },
@@ -29,6 +30,7 @@ function EvidenceDialog({ target, onClose }: { target: EvidenceTarget; onClose: 
   const [type, setType] = useState("Report");
   const [link, setLink] = useState({ filename: "", storage_reference: "" });
   const [stage, setStage] = useState<"" | "hashing" | "uploading">("");
+  const [result, setResult] = useState<{ code: string; name: string; pc: Precheck } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const first = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
@@ -55,8 +57,13 @@ function EvidenceDialog({ target, onClose }: { target: EvidenceTarget; onClose: 
         form.append("evidence_type", type);
         if (digest) form.append("sha256", digest);
         setStage("uploading");
-        await apiUpload(`${base}/evidence/upload`, form);
-        onClose(`${file.name} uploaded and sent for review`);
+        const r = await apiUpload(`${base}/evidence/upload`, form);
+        if (r?.precheck && openWarnings(r.precheck).length) {
+          setResult({ code: r.evidence_code, name: file.name, pc: r.precheck });   // show what to fix before review
+          setStage("");
+          return;
+        }
+        onClose(`${file.name} uploaded and sent for review${r?.precheck ? ". Pre-check found no problems." : ""}`);
       } else {
         setStage("uploading");
         await api("POST", `${base}/evidence`, { evidence_type: "ExternalRecord", ...link });
@@ -66,6 +73,23 @@ function EvidenceDialog({ target, onClose }: { target: EvidenceTarget; onClose: 
       setError(err);
       setStage("");
     }
+  }
+
+  if (result) {
+    const n = openWarnings(result.pc).length;
+    const done = `${result.name} uploaded and sent for review. Pre-check: ${n} thing${n === 1 ? "" : "s"} to check.`;
+    return (
+      <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose(done)}>
+        <div className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="pc-title">
+          <header>
+            <h2 id="pc-title">Uploaded as {result.code}. The pre-check found {n} thing{n === 1 ? "" : "s"} to check</h2>
+            <p>It has gone to the reviewer as it is. If the file is wrong, upload a corrected one; if a check is mistaken, say so from the Evidence tab so the reviewer sees why.</p>
+          </header>
+          <div className="body"><PrecheckDetails pc={result.pc} /></div>
+          <footer><button type="button" className="btn primary" autoFocus onClick={() => onClose(done)}>Done</button></footer>
+        </div>
+      </div>
+    );
   }
 
   return (

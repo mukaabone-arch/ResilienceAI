@@ -27,7 +27,7 @@ export default function NewTest() {
   const [f, setF] = useState({
     programme_id: "", template_id: "", title: "", category: "Application", criticality: "High",
     timezone: "Asia/Kolkata", start: "", end: "", test_manager_user_id: "", owner_user_id: "",
-    objectives: "", blackout_override_reason: "",
+    objectives: "", blackout_override_reason: "", rto: "", rpo: "",
   });
   const [svc, setSvc] = useState<string[]>([]);
   const [repeat, setRepeat] = useState("");
@@ -118,6 +118,7 @@ export default function NewTest() {
         planned_start_at: startIso, planned_end_at: endIso,
         test_manager_user_id: f.test_manager_user_id || undefined, owner_user_id: f.owner_user_id || undefined,
         objectives: f.objectives || undefined, business_service_ids: svc,
+        rto_target_minutes: f.rto ? Number(f.rto) : undefined, rpo_target_minutes: f.rpo !== "" ? Number(f.rpo) : undefined,
         blackout_override_reason: inBlackout ? f.blackout_override_reason : undefined,
       }, { "Idempotency-Key": idem });
       router.push(`/tests/${ev.id}`);
@@ -180,6 +181,15 @@ export default function NewTest() {
             <div className="field"><label htmlFor="obj">Objectives (optional)</label>
               <textarea id="obj" className="textarea" value={f.objectives} onChange={(e) => set("objectives", e.target.value)}
                 placeholder="What this test needs to prove, e.g. recover core banking at the DR site within the 4-hour RTO" /></div>
+            {!repeat && (
+              <div className="form-row">
+                <div className="field"><label htmlFor="rto">RTO target, minutes (optional)</label>
+                  <input id="rto" type="number" min={1} inputMode="numeric" className="input" value={f.rto} onChange={(e) => set("rto", e.target.value)} placeholder="e.g. 240" /></div>
+                <div className="field"><label htmlFor="rpo">RPO target, minutes (optional)</label>
+                  <input id="rpo" type="number" min={0} inputMode="numeric" className="input" value={f.rpo} onChange={(e) => set("rpo", e.target.value)} placeholder="e.g. 15" />
+                  <span className="hint">Evidence is checked against these when it&apos;s uploaded.</span></div>
+              </div>
+            )}
           </Panel>
 
           <Panel title="When">

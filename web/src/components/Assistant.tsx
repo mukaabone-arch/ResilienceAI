@@ -183,10 +183,15 @@ export function OversightLog() {
   const { data, error } = useApi<any[]>("/assistant/log?limit=100");
   if (error) return null;      // the endpoint is for programme, risk, audit and admin roles only
   if (!data) return <Loading />;
-  const label: Record<string, string> = { blocker_briefing: "Blocker briefing", slip_forecast: "Slip forecast", status_summary: "Status summary", message_draft: "Message draft" };
+  const label: Record<string, string> = { blocker_briefing: "Blocker briefing", slip_forecast: "Slip forecast", status_summary: "Status summary", message_draft: "Message draft", evidence_precheck: "Evidence pre-check" };
+  const outcome = (x: any) => x.feature !== "evidence_precheck" ? x.status
+    : x.status === "Accepted" ? "Reviewer agreed" : x.status === "Dismissed" ? "Reviewer disagreed" : x.status === "Proposed" ? "Awaiting review" : x.status;
+  const pcs = data.filter((x: any) => x.feature === "evidence_precheck" && ["Accepted", "Dismissed"].includes(x.status));
+  const agreed = pcs.filter((x: any) => x.status === "Accepted").length;
   const counts = data.reduce((m: Record<string, number>, x: any) => ({ ...m, [x.status]: (m[x.status] ?? 0) + 1 }), {});
   return (
-    <Panel title="Assistant oversight" meta={Object.entries(counts).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(", ")} flush>
+    <Panel title="Assistant oversight" meta={Object.entries(counts).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(", ")
+      + (pcs.length ? `. Evidence pre-checks: reviewers agreed with ${agreed} of ${pcs.length}` : "")} flush>
       {!data.length ? <p className="panel-empty">The assistant hasn&apos;t made any suggestions yet.</p> : (
         <table className="table">
           <thead><tr><th>Suggestion</th><th>Test</th><th>Outcome</th><th>Source</th></tr></thead>
@@ -195,8 +200,8 @@ export function OversightLog() {
               <tr key={x.id}>
                 <td><div className="title" style={{ fontSize: "var(--t-sm)" }}>{label[x.feature] ?? x.feature}</div>
                   <div className="sub">{x.subject ?? x.headline}</div></td>
-                <td className="small"><span className="code">{x.event_code}</span><div className="sub">{fmtDateTime(x.created_at)}{x.requested_by ? `, asked by ${x.requested_by}` : ", scheduled"}</div></td>
-                <td className="small">{x.status}{x.decided_by ? ` by ${x.decided_by}` : ""}{x.feedback && <div className="sub">“{x.feedback}”</div>}</td>
+                <td className="small"><span className="code">{x.event_code}</span><div className="sub">{fmtDateTime(x.created_at)}{x.requested_by ? `, ${x.feature === "evidence_precheck" ? "uploaded" : "asked"} by ${x.requested_by}` : x.feature === "evidence_precheck" ? ", after malware scan" : ", scheduled"}</div></td>
+                <td className="small">{outcome(x)}{x.decided_by ? ` by ${x.decided_by}` : ""}{x.feedback && <div className="sub">“{x.feedback}”</div>}</td>
                 <td className="small">{x.provider === "anthropic" ? x.model : "Built-in"}{x.fallback_reason && <div className="sub">Fallback: {x.fallback_reason}</div>}</td>
               </tr>
             ))}

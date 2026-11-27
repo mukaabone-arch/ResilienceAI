@@ -143,8 +143,10 @@ def test_infected_upload_is_refused_and_not_stored(as_, ev, s3):
 
 def test_scanner_down_holds_the_file_until_the_worker_scans_it(as_, ev, s3, monkeypatch, clamd):
     monkeypatch.setattr(config, "settings", replace(config.settings, clamd_port=1))     # nothing listens there
-    r = up(as_("rahul.dba"), ev).json()
+    data = PDF + uuid.uuid4().hex.encode()
+    r = up(as_("rahul.dba"), ev, data=data).json()
     assert r["scan_status"] == "Pending" and "unreachable" in r["scan_detail"]
+    assert r["precheck"] is None                          # not checked until the scan clears it
     tm = as_("meera.tm")
     assert "waiting for its malware scan" in tm.get(f"/test-evidence/{r['id']}/download").json()["error"]
     reg = {x["id"]: x for x in tm.get(f"/test-events/{ev['ev']['id']}/evidence", expect=200).json()}
@@ -154,7 +156,9 @@ def test_scanner_down_holds_the_file_until_the_worker_scans_it(as_, ev, s3, monk
     assert evidence.rescan_pending(ev["tenant"])["still_pending"] >= 1                   # still down: stays held
     monkeypatch.setattr(config, "settings", replace(config.settings, clamd_port=clamd.server_address[1]))
     assert evidence.rescan_pending(ev["tenant"])["clean"] >= 1
-    assert tm.get(f"/test-evidence/{r['id']}/download", expect=200).content == PDF
+    assert tm.get(f"/test-evidence/{r['id']}/download", expect=200).content == data
+    reg = {x["id"]: x for x in tm.get(f"/test-events/{ev['ev']['id']}/evidence", expect=200).json()}
+    assert reg[r["id"]]["precheck"]["status"] == "Proposed"                         # checked once clean
     tm.post(f"/test-evidence/{r['id']}/review", expect=200, json={"accept": True})
 
 

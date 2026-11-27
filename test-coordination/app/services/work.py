@@ -399,12 +399,18 @@ def review_evidence(ctx: Ctx, evidence_id: UUID, accept: bool, comment: str | No
     if accept and item["scan_status"] in ("Pending", "Infected"):
         raise Conflict("This file can't be accepted: " + ("it is still waiting for its malware scan."
                        if item["scan_status"] == "Pending" else "it was quarantined by the malware scan."))
+    from ..ai import prechecks
+    open_warnings = prechecks.warnings_of(prechecks.latest(ctx, evidence_id))
+    if accept and open_warnings and not (comment or "").strip():
+        raise Unprocessable(f"The pre-check raised {len(open_warnings)} thing{'s' if len(open_warnings) != 1 else ''} to "
+                            "check (" + "; ".join(open_warnings) + "). Add a note saying why the file is acceptable.")
     evd = t("test_evidence")
     new = dict(ctx.conn.execute(update(evd).where(evd.c.id == evidence_id).values(
         review_status="Accepted" if accept else "Rejected", review_comment=comment,
         reviewed_by=ctx.me.user_id, reviewed_at=now()).returning(evd)).mappings().one())
     audit.record(ctx, "evidence.reviewed", "Evidence", evidence_id, event_id=ev["id"],
                  new={"review_status": new["review_status"], "comment": comment})
+    prechecks.on_review(ctx, item, ev, accept, comment)
     if not accept:
         notifications.enqueue(ctx, "approval_requested", event=ev, activity_id=item["activity_id"],
                               recipients=[item["submitted_by"]],

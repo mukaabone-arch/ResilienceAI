@@ -44,6 +44,11 @@ class Settings:
     evidence_store: str = os.getenv("EVIDENCE_STORE", "local")
     evidence_dir: str = os.getenv("EVIDENCE_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "evidence-store"))
     evidence_max_mb: int = int(os.getenv("EVIDENCE_MAX_MB", "25"))
+    # Pre-checks on each uploaded file (dates, recovery targets, environment, reuse, sensitive data, relevance).
+    # Rule-based checks always run locally; with AI_PROVIDER=anthropic a model also judges relevance and writes the
+    # reviewer briefing from a masked, name-free excerpt. "off" disables pre-checks entirely.
+    evidence_precheck: str = os.getenv("EVIDENCE_PRECHECK", "on")
+    evidence_lookback_days: int = int(os.getenv("EVIDENCE_LOOKBACK_DAYS", "14"))
     # EVIDENCE_STORE=s3: any S3-compatible store (AWS S3, MinIO, others). Credentials come from the standard AWS
     # sources (environment, instance or workload role); set EVIDENCE_S3_ENDPOINT for a non-AWS store.
     evidence_s3_bucket: str = os.getenv("EVIDENCE_S3_BUCKET", "")

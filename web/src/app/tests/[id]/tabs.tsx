@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { ActivityActions } from "@/components/ActivityActions";
 import { AssistantCards, MessageDrafts } from "@/components/Assistant";
 import { GoDecision, GoDecisionDialog } from "@/components/Decisions";
 import { DependencyMap } from "@/components/DependencyMap";
 import { useEvidenceUpload } from "@/components/EvidenceUpload";
+import { PrecheckDetails, PrecheckLine, openWarnings, type Finding } from "@/components/Precheck";
 import { ReadinessGate } from "@/components/ReadinessGate";
 import { ErrorNotice, Loading, Panel, Pill, useAction, useDialog } from "@/components/ui";
 import { api, downloadFile, useApi } from "@/lib/api";
@@ -91,8 +92,38 @@ export function OverviewTab(ctx: Ctx) {
           </Panel>
         )}
         {(ev.objectives || ev.description) && <Panel title="Objectives"><p className="small">{ev.objectives || ev.description}</p></Panel>}
+        <RecoveryTargets {...ctx} />
       </div>
     </div>
+  );
+}
+
+function RecoveryTargets({ ev, reloadEvent }: Ctx) {
+  const { run, feedback } = useAction(reloadEvent);
+  const { ask, node } = useDialog();
+  const editable = ev.can_manage && !["Closed", "Cancelled"].includes(ev.lifecycle_status);
+  const mins = (m: number | null) => (m == null ? "Not set" : m >= 120 && m % 60 === 0 ? `${m / 60} hours` : `${m} min`);
+  async function edit() {
+    const v = await ask({ title: "Recovery targets", confirm: "Save",
+      description: "Uploaded evidence is checked against these: a log showing a 40-minute recovery point against a 15-minute RPO is flagged for the reviewer.",
+      fields: [
+        { name: "rto", label: "RTO target, minutes", initial: ev.rto_target_minutes?.toString() ?? "", hint: "Leave empty for none" },
+        { name: "rpo", label: "RPO target, minutes", initial: ev.rpo_target_minutes?.toString() ?? "", hint: "Leave empty for none" },
+      ] });
+    if (!v) return;
+    const num = (x: string) => (x.trim() === "" ? null : Number(x));
+    run(() => api("PATCH", `/test-events/${ev.id}`, { expected_version: ev.version, rto_target_minutes: num(v.rto), rpo_target_minutes: num(v.rpo) }),
+      "Recovery targets saved");
+  }
+  return (
+    <Panel title="Recovery targets" action={editable ? <button className="btn quiet" onClick={edit}>Edit</button> : undefined}>
+      {feedback}
+      <dl className="rt-facts">
+        <div><dt>RTO</dt><dd>{mins(ev.rto_target_minutes)}</dd></div>
+        <div><dt>RPO</dt><dd>{mins(ev.rpo_target_minutes)}</dd></div>
+      </dl>
+      {node}
+    </Panel>
   );
 }
 
@@ -597,11 +628,20 @@ export function EvidenceTab(ctx: Ctx) {
   const { run, feedback } = useAction(reload);
   const { ask, node } = useDialog();
   const [checks, setChecks] = useState<Record<string, any>>({});
+  const [openPc, setOpenPc] = useState<Record<string, boolean>>({});
 
   async function review(x: any, accept: boolean) {
-    const v = accept ? {} : await ask({ title: `Reject ${x.evidence_code}`, confirm: "Reject", danger: true,
-      description: "The person who submitted it is told why, so they can resubmit.",
-      fields: [{ name: "comment", label: "What's wrong with it?", kind: "textarea", required: true }] });
+    const warns = openWarnings(x.precheck);
+    const v = !accept
+      ? await ask({ title: `Reject ${x.evidence_code}`, confirm: "Reject", danger: true,
+          description: "The person who submitted it is told why, so they can resubmit.",
+          fields: [{ name: "comment", label: "What's wrong with it?", kind: "textarea", required: true,
+            initial: warns.length ? warns.map((w) => w.title).join(". ") + "." : undefined }] })
+      : warns.length
+        ? await ask({ title: `Accept ${x.evidence_code} despite the pre-check?`, confirm: "Accept",
+            description: `The pre-check raised ${warns.length} thing${warns.length === 1 ? "" : "s"} to check: ${warns.map((w) => w.title).join("; ")}. Say why the file is acceptable; your note is kept with the decision.`,
+            fields: [{ name: "comment", label: "Why it's acceptable", kind: "textarea", required: true }] })
+        : {};
     if (v) run(() => api("POST", `/test-evidence/${x.id}/review`, { accept, comment: (v as any).comment }),
       accept ? `${x.evidence_code} accepted` : `${x.evidence_code} rejected`);
   }
@@ -614,6 +654,13 @@ export function EvidenceTab(ctx: Ctx) {
           description: `Held for: ${x.legal_hold_reason}. After release the file follows its normal retention period.` });
     if (v) run(() => api("POST", `/test-evidence/${x.id}/legal-hold`, { on, reason: (v as any).reason }),
       on ? `${x.evidence_code} is on legal hold` : `Legal hold released on ${x.evidence_code}`);
+  }
+  async function markWrong(x: any, f: Finding) {
+    const v = await ask({ title: "This check isn't right", confirm: "Save",
+      description: `"${f.title}". Say what it got wrong. The reviewer sees your note, and it no longer counts as a warning; the pre-check's accuracy is tracked from these notes.`,
+      fields: [{ name: "note", label: "What it got wrong", kind: "textarea", required: true }] });
+    if (v) run(() => api("POST", `/test-evidence/${x.id}/precheck/feedback`, { key: f.key, verdict: "wrong", note: (v as any).note }),
+      "Noted. The reviewer will see it.");
   }
   async function verify(x: any) {
     run(async () => {
@@ -637,7 +684,8 @@ export function EvidenceTab(ctx: Ctx) {
               {rows.map((x) => {
                 const chk = checks[x.id];
                 return (
-                  <tr key={x.id} style={{ opacity: x.superseded ? 0.55 : 1 }}>
+                  <Fragment key={x.id}>
+                  <tr style={{ opacity: x.superseded ? 0.55 : 1 }}>
                     <td>
                       <div className="title" style={{ fontSize: "var(--t-sm)" }}>{x.filename ?? x.storage_reference}</div>
                       <div className="sub">
@@ -654,6 +702,7 @@ export function EvidenceTab(ctx: Ctx) {
                         </div>
                       )}
                       {x.storage_backend !== "link" && <EvidenceSafety x={x} />}
+                      <PrecheckLine pc={x.precheck} open={!!openPc[x.id]} onOpen={() => setOpenPc((o) => ({ ...o, [x.id]: !o[x.id] }))} />
                     </td>
                     <td className="small">{x.activity_code ? <><span className="code">{x.activity_code}</span> {x.activity_title}</> : x.readiness_title ? <>Readiness: {x.readiness_title}</> : "—"}</td>
                     <td className="small">{x.submitted_by_name}<div className="sub">{fmtDateTime(x.submitted_at, ev.timezone)}</div></td>
@@ -679,6 +728,16 @@ export function EvidenceTab(ctx: Ctx) {
                       </div>
                     </td>
                   </tr>
+                  {x.precheck && openPc[x.id] && (
+                    <tr className="pc-row">
+                      <td colSpan={5}>
+                        <PrecheckDetails pc={x.precheck} tz={ev.timezone} canAct={x.can_precheck}
+                          onFeedback={(f) => markWrong(x, f)}
+                          onRerun={() => run(() => api("POST", `/test-evidence/${x.id}/precheck`), `${x.evidence_code}: pre-check run again`)} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -688,6 +747,7 @@ export function EvidenceTab(ctx: Ctx) {
       <Panel title="How evidence is protected">
         <ul className="small muted protect-list">
           <li><strong>Fingerprinted.</strong> Each file&apos;s SHA-256 fingerprint is taken in your browser and on the server, and checked again on every download. A file that has changed isn&apos;t served, and the failure is written to the audit record.</li>
+          <li><strong>Pre-checked.</strong> Each readable file is checked against its activity: dates against the test window, recovery figures against the RTO and RPO targets, host names for the wrong environment, copies of other evidence, and card numbers, Aadhaar numbers or passwords that should be redacted. Every finding shows the lines it came from. The reviewer still decides.</li>
           <li><strong>Scanned.</strong> Every upload is scanned for malware before anyone can open or accept it. Infected files are refused, or quarantined if found later, and the submitter and test manager are told.</li>
           <li><strong>Encrypted and retention-locked.</strong> In production, files are kept in encrypted object storage under a retention lock: no one, administrators included, can delete or overwrite them before the retention date. Risk, audit and the programme administrator can place a legal hold to keep a file longer.</li>
         </ul>

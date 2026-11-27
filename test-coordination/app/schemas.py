@@ -53,6 +53,8 @@ class EventIn(Model):
     test_manager_user_id: Optional[UUID] = None
     business_service_ids: list[UUID] = Field(default_factory=list)
     blackout_override_reason: Optional[str] = None
+    rto_target_minutes: Optional[int] = Field(default=None, gt=0, le=100000)
+    rpo_target_minutes: Optional[int] = Field(default=None, ge=0, le=100000)
 
 
 class EventPatch(Model):
@@ -68,6 +70,8 @@ class EventPatch(Model):
     timezone: Optional[str] = None
     reschedule_reason: Optional[str] = None
     blackout_override_reason: Optional[str] = None
+    rto_target_minutes: Optional[int] = Field(default=None, gt=0, le=100000)
+    rpo_target_minutes: Optional[int] = Field(default=None, ge=0, le=100000)
 
 
 class TransitionIn(Model):
@@ -290,3 +294,9 @@ class AiDecisionIn(Model):
     subject: Optional[str] = Field(default=None, max_length=250)
     intro: Optional[str] = Field(default=None, max_length=4000)
     exclude_recipients: list[UUID] = Field(default_factory=list)
+
+
+class PrecheckFeedbackIn(Model):
+    key: str = Field(max_length=40)
+    verdict: Literal["wrong", "right"]
+    note: Optional[str] = Field(default=None, max_length=1000)
