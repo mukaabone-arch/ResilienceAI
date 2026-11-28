@@ -35,6 +35,7 @@ export function tzLabel(tz?: string): string {
 }
 
 const ROLE_NAMES: Record<string, string> = {
+  ModelRiskCommittee: "Model-risk committee", CISO: "CISO",
   EnterpriseProgrammeAdministrator: "Programme administrator",
   DRProgrammeManager: "DR programme manager",
   TestManager: "Test manager",

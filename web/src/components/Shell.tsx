@@ -30,6 +30,7 @@ const ICONS: Record<string, ReactNode> = {
   "/calendar": <><rect x="3.5" y="5" width="17" height="15.5" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
   "/reports": <><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></>,
   "/command": <><path d="M4.5 18a8.5 8.5 0 1 1 15 0" /><path d="m12 13.5 4-4" /><circle cx="12" cy="14" r="1.3" /></>,
+  "/governance": <><path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6z" /><path d="m9 12 2.2 2.2L15.5 10" /></>,
 };
 
 function NavIcon({ href }: { href: string }) {
@@ -41,6 +42,7 @@ function NavIcon({ href }: { href: string }) {
 }
 
 const PORTFOLIO_ROLES = ["EnterpriseProgrammeAdministrator", "DRProgrammeManager", "RiskCompliance", "SeniorManagement", "Auditor"];
+const GOVERNANCE_ROLES = ["ModelRiskCommittee", "CISO", "EnterpriseProgrammeAdministrator", "RiskCompliance", "Auditor", "DRProgrammeManager"];
 
 type AuthState =
   | { kind: "loading" }
@@ -151,6 +153,7 @@ function Shell({ children, sso = false, breakGlass }: { children: ReactNode; sso
     { href: "/calendar", label: "Calendar" },
     { href: "/reports", label: "Reports" },
     ...(isPortfolio ? [{ href: "/command", label: "Command centre" }] : []),
+    ...(me?.roles?.some((r: string) => GOVERNANCE_ROLES.includes(r)) ? [{ href: "/governance", label: "Governance" }] : []),
   ];
   return (
     <div className={breakGlass ? "shell has-bg" : "shell"}>

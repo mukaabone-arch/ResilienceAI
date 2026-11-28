@@ -153,9 +153,22 @@ def request_run(ctx: Ctx, activity_id: UUID, reason: str) -> dict:
     rr = t("automation_run_requests")
     if ctx.conn.execute(select(rr.c.id).where(and_(rr.c.activity_id == activity_id, rr.c.status == "Pending"))).first():
         raise Conflict("A request for this runbook is already waiting for a decision")
+    from .automation import _launch, preflight
+    from .autonomy import permits
+    preflight(ctx, act, ev)                     # it couldn't run now anyway: say why rather than ask a person
     agent = _agent(ctx, ctx.me.agent_id)
     rec = dict(ctx.conn.execute(insert(rr).values(tenant_id=ctx.me.tenant_id, event_id=ev["id"], activity_id=activity_id,
                                                   agent_id=agent["id"], reason=reason.strip()[:2000]).returning(rr)).mappings().one())
+    pol, rule, why = permits(ctx.conn, kind="agent_request", integration_id=rb["integration_id"],
+                             job_template_id=rb["job_template_id"], event=ev, agent_id=agent["id"])
+    if pol is not None:                         # the CISO-approved policy covers it: no one needs to press Approve
+        run_rec = _launch(ctx, act, ev, rb, approved_by=None, policy=pol, rule=rule,
+                          note=f"asked by {agent['name']}: {rec['reason']}", also_tell=[agent["accountable_user_id"]])
+        rec = dict(ctx.conn.execute(update(rr).where(rr.c.id == rec["id"]).values(
+            status="AutoApproved", policy_id=pol["id"], run_id=run_rec["id"]).returning(rr)).mappings().one())
+        audit.record(ctx, "agent.run_auto_approved", "Activity", activity_id, event_id=ev["id"],
+                     new={"request": str(rec["id"]), "policy": pol["version"], "rule": rule["name"], "run": str(run_rec["id"])})
+        return {**rec, "run": run_rec, "policy": {"version": pol["version"], "rule": rule["name"]}}
     audit.record(ctx, "agent.run_requested", "Activity", activity_id, event_id=ev["id"],
                  new={"request": str(rec["id"]), "job_template": rb["job_template_name"], "reason": rec["reason"]})
     log(ctx, ev["id"], "Status", f"{agent['name']} asks to run '{rb['job_template_name']}' for {act['activity_code']}: "
@@ -164,9 +177,9 @@ def request_run(ctx: Ctx, activity_id: UUID, reason: str) -> dict:
                           recipients=[agent["accountable_user_id"], ev["test_manager_user_id"]],
                           subject=f"[{ev['event_code']}] {agent['name']} asks to run '{rb['job_template_name']}' for {act['activity_code']}",
                           body=f"Reason given: {rec['reason']}. Approve or decline it on the test's Activities tab. "
-                               f"The request expires after {REQUEST_MINUTES} minutes.",
+                               f"The request expires after {REQUEST_MINUTES} minutes. ({why}.)",
                           dedupe=f"run-request:{rec['id']}")
-    return rec
+    return {**rec, "needs_approval_because": why}
 
 
 def decide(ctx: Ctx, request_id: UUID, approve: bool, note: str | None) -> dict:

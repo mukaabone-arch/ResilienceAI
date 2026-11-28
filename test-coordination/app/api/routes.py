@@ -377,6 +377,49 @@ def break_glass_sessions(ctx: Ctx = D):
     return breakglass.open_sessions(ctx.conn)
 
 
+# ---- Autonomy policy (model-risk committee proposes, CISO approves) ----
+@router.get("/autonomy", tags=["autonomy"], summary="The autonomy policy in force, proposals and history")
+def autonomy_overview(ctx: Ctx = D):
+    from ..services import autonomy
+    return autonomy.overview(ctx)
+
+
+@router.post("/autonomy/policies", status_code=201, tags=["autonomy"], summary="Draft a new policy (model-risk committee)")
+def autonomy_draft(data: sc.PolicyDraftIn, ctx: Ctx = D):
+    from ..services import autonomy
+    return autonomy.draft(ctx, data.rules, data.rationale, data.review_by)
+
+
+@router.put("/autonomy/policies/{policy_id}", tags=["autonomy"], summary="Edit a draft")
+def autonomy_edit(policy_id: UUID, data: sc.PolicyDraftIn, ctx: Ctx = D):
+    from ..services import autonomy
+    return autonomy.draft(ctx, data.rules, data.rationale, data.review_by, policy_id)
+
+
+@router.post("/autonomy/policies/{policy_id}/propose", tags=["autonomy"], summary="Propose a draft to the CISO")
+def autonomy_propose(policy_id: UUID, ctx: Ctx = D):
+    from ..services import autonomy
+    return autonomy.propose(ctx, policy_id)
+
+
+@router.post("/autonomy/policies/{policy_id}/withdraw", tags=["autonomy"], summary="Take a proposal back to edit it")
+def autonomy_withdraw(policy_id: UUID, ctx: Ctx = D):
+    from ..services import autonomy
+    return autonomy.withdraw(ctx, policy_id)
+
+
+@router.post("/autonomy/policies/{policy_id}/decision", tags=["autonomy"], summary="The CISO approves or rejects")
+def autonomy_decide(policy_id: UUID, data: sc.PolicyDecisionIn, ctx: Ctx = D):
+    from ..services import autonomy
+    return autonomy.decide(ctx, policy_id, data.approve, data.note)
+
+
+@router.post("/autonomy/policies/{policy_id}/revoke", tags=["autonomy"], summary="Revoke the policy in force at once")
+def autonomy_revoke(policy_id: UUID, data: sc.RevokeIn, ctx: Ctx = D):
+    from ..services import autonomy
+    return autonomy.revoke(ctx, policy_id, data.reason)
+
+
 # ---- Activity updates and the bank's own agents ----
 @router.post("/test-activities/{activity_id}/updates", status_code=201, tags=["activities"],
              summary="Post a progress note on an activity (owner, test manager or the agent that owns it)")

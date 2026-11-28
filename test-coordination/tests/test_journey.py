@@ -361,7 +361,8 @@ def test_tenant_isolation(as_, journey, seeded):  # QA-14
     with engine().connect() as c:
         c.execute(text("SELECT set_config('app.tenant_id', :t, false)"), {"t": str(seeded["B"]["tenant"])})
         assert c.execute(text("SELECT count(*) FROM test_events")).scalar() == 0
-        assert c.execute(text("SELECT count(*) FROM users")).scalar() == 14
+        from scripts.seed import USERS
+        assert c.execute(text("SELECT count(*) FROM users")).scalar() == len(USERS)
         c.execute(text("SELECT set_config('app.tenant_id', '', false)"))
         assert c.execute(text("SELECT count(*) FROM test_events")).scalar() == 0
     # unrelated internal user without portfolio role can't see the event

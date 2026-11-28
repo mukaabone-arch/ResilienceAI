@@ -750,3 +750,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .agent-facts dd { margin: 1px 0 0; color: var(--ink); font-weight: 600; }
 .agent-why { color: var(--blocked); margin: 6px 0 0; }
 .agent-log { margin-top: 8px; }
+
+/* ---------- Governance ---------- */
+.gov-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; color: var(--ink-2); margin-bottom: 8px; }
+.gov-rationale { font-size: var(--t-sm); color: var(--ink-2); border-left: 3px solid var(--line-strong); padding: 2px 0 2px 12px; margin: 8px 0 12px; max-width: 900px; }
+.gov-rules td { vertical-align: top; }
+.gov-draft { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--glass-line); }
+.gov-draft:last-child { border-bottom: 0; }
+.gov-editor { width: min(820px, 100%); }
+.gov-rule { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 4px; margin: 0 0 12px; }
+.gov-rule legend { font-weight: 700; font-size: var(--t-sm); padding: 0 6px; }
+.gov-label { display: block; font-size: var(--t-sm); font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.gov-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-bottom: 12px; font-size: var(--t-sm); }
+.gov-checks .gov-label { width: 100%; margin: 0; }
+.gov-tpls { display: grid; gap: 6px; margin-bottom: 12px; }
+.gov-tpls label { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-control); font-size: var(--t-sm); cursor: pointer; }
+.gov-tpls label.on { border-color: var(--action); background: var(--action-tint); }
+.gov-tpls .block { display: block; }

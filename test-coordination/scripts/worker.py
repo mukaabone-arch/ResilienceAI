@@ -22,7 +22,7 @@ from app.ai.service import run_live_summaries
 from app.db import worker_engine
 from app.services.evidence import rescan_pending
 from app.services import ops
-from app.services.automation import sync_active
+from app.services.automation import auto_launch, sync_active
 from app.services.notifications import dispatch_all_tenants
 from app.services.people import run_escalations
 
@@ -35,6 +35,7 @@ def one_pass() -> dict:
         sc = rescan_pending(tid)                 # first, so a quarantine notice goes out in this pass
         out["scanned"] += sc["clean"] + sc["infected"]
         out["quarantined"] += sc["infected"]
+        out["auto_started"] = out.get("auto_started", 0) + auto_launch(tid)   # runs the autonomy policy allows
         au = sync_active(tid)                     # follow Ansible jobs (the webhook usually gets there first)
         out["runs_checked"] = out.get("runs_checked", 0) + au["checked"]
         out["prechecked"] = out.get("prechecked", 0) + run_model_pending(tid)   # model view of new evidence, if enabled
