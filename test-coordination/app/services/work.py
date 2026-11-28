@@ -99,10 +99,13 @@ def list_activities(ctx: Ctx, event_id: UUID) -> list[dict]:
     if ctx.me.is_external:  # vendors see only their own assignments
         acts = [x for x in acts if x["owner_user_id"] == ctx.me.user_id]
     else:
+        from .agents import pending_for
         from .automation import for_activities
         runbooks = for_activities(ctx, [x["id"] for x in acts])
+        requests = pending_for(ctx, [x["id"] for x in acts])
         for x in acts:
             x["runbook"] = runbooks.get(x["id"])
+            x["run_request"] = requests.get(x["id"])
     _ = ev
     return acts
 
@@ -118,6 +121,14 @@ def _graph(ctx: Ctx, event_id: UUID) -> tuple[list[dep.ActivityNode], list[dep.E
 
 def update_activity(ctx: Ctx, activity_id: UUID, data: dict) -> dict:
     act, ev = child_of_event(ctx, "test_activities", activity_id, for_update=True)
+    if ctx.me.is_agent:
+        extra = set(data) - {"status", "blocked_reason", "comment", "expected_version"}
+        if extra:
+            raise Forbidden(f"Agents can change only status, with a comment or blocker reason (not {', '.join(sorted(extra))})")
+        if not _is_activity_owner(ctx, act):
+            raise Forbidden("An agent can update only activities assigned to it")
+        if data.get("status") == A.BLOCKED.value and "report_blocker" not in ctx.me.agent_scopes:
+            raise Forbidden("This agent doesn't have the 'report_blocker' permission")
     check_version(act["version"], data.get("expected_version"))
     a = t("test_activities")
     values: dict = {}
@@ -181,6 +192,13 @@ def update_activity(ctx: Ctx, activity_id: UUID, data: dict) -> dict:
         log(ctx, ev["id"], kind, msg + (f". {data['comment']}" if data.get("comment") else ""), activity_id=activity_id)
     if new["status"] == A.BLOCKED.value:
         _notify_downstream_blocked(ctx, ev, new)
+        if ctx.me.is_agent:                          # the person answerable for the agent hears about it at once
+            acc = ctx.conn.execute(select(t("agent_identities").c.accountable_user_id).where(
+                t("agent_identities").c.id == ctx.me.agent_id)).scalar()
+            notifications.enqueue(ctx, "critical_issue", event=ev, activity_id=activity_id, recipients=[acc],
+                                  subject=f"[{ev['event_code']}] {ctx.me.display_name} reported a blocker on {new['activity_code']}",
+                                  body=f"{new['blocked_reason']}. You're accountable for this agent.",
+                                  dedupe=f"agent-blocker:{activity_id}:v{new['version']}")
     if new["status"] == A.SUBMITTED.value and new["reviewer_user_id"]:
         notifications.enqueue(ctx, "approval_requested", event=ev, activity_id=activity_id, recipients=[new["reviewer_user_id"]],
                               subject=f"[{ev['event_code']}] Review requested: {new['activity_code']} {new['title']}",
@@ -205,6 +223,7 @@ def _notify_downstream_blocked(ctx: Ctx, ev: dict, act: dict) -> None:
 
 
 def review_activity(ctx: Ctx, activity_id: UUID, accept: bool, comment: str | None) -> dict:
+    authz.require_human(ctx, "review an activity")
     act, ev = child_of_event(ctx, "test_activities", activity_id, for_update=True)
     if ctx.me.user_id != act["reviewer_user_id"]:
         raise Forbidden("Only the designated reviewer can review this activity")
@@ -392,6 +411,7 @@ def submit_evidence(ctx: Ctx, *, activity_id: UUID | None = None, readiness_item
 
 
 def review_evidence(ctx: Ctx, evidence_id: UUID, accept: bool, comment: str | None) -> dict:
+    authz.require_human(ctx, "accept or reject evidence")
     item, ev = child_of_event(ctx, "test_evidence", evidence_id, for_update=True)
     reviewer_ok = authz.can_manage_event(ctx, ev) or ctx.me.has(Role.RISK)
     if item["activity_id"]:
@@ -566,6 +586,7 @@ def validate_measurement(ctx: Ctx, measurement_id: UUID) -> dict:
 # Approvals (RA-039, RA-063)
 # ---------------------------------------------------------------------------
 def record_approval(ctx: Ctx, event_id: UUID, data: dict) -> dict:
+    authz.require_human(ctx, "record an approval or decision")
     ev = event(ctx, event_id, for_update=True)
     kind = AT(data["approval_type"])
     if kind in (AT.PLAN, AT.BLACKOUT_OVERRIDE):
@@ -659,6 +680,20 @@ def announce(ctx: Ctx, event_id: UUID, message: str) -> dict:
                                 subject=f"[{ev['event_code']}] Announcement", body=message,
                                 dedupe=f"ann:{event_id}:{ctx.correlation_id}", trigger_type="Manual")
     return {"communication_id": cid}
+
+
+def post_activity_update(ctx: Ctx, activity_id: UUID, message: str) -> dict:
+    """A progress note on one activity, from its owner (a person or an agent): shows on the test's timeline."""
+    act, ev = child_of_event(ctx, "test_activities", activity_id)
+    if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev)):
+        raise Forbidden("Only the activity's owner or the test manager can post updates on it")
+    _require_workable(ev)
+    msg = (message or "").strip()
+    if not msg:
+        raise Unprocessable("Write the update")
+    log(ctx, ev["id"], "Status", f"{act['activity_code']}: {msg[:1500]}", activity_id=activity_id)
+    audit.record(ctx, "activity.update_posted", "Activity", activity_id, event_id=ev["id"], new={"message": msg[:1500]})
+    return {"ok": True}
 
 
 def add_log_entry(ctx: Ctx, event_id: UUID, data: dict) -> dict:

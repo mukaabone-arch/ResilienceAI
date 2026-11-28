@@ -26,7 +26,8 @@ def body(m) -> dict:
 @router.get("/me", tags=["me"])
 def me(ctx: Ctx = D):
     return {"user_id": ctx.me.user_id, "tenant_id": ctx.me.tenant_id, "display_name": ctx.me.display_name,
-            "roles": sorted(ctx.me.roles), "is_external": ctx.me.is_external}
+            "roles": sorted(ctx.me.roles), "is_external": ctx.me.is_external, "is_agent": ctx.me.is_agent,
+            "agent_scopes": sorted(ctx.me.agent_scopes) if ctx.me.is_agent else None}
 
 
 @router.get("/users", tags=["directory"], summary="People in this tenant (for assignment pickers)")
@@ -37,9 +38,12 @@ def users(ctx: Ctx = D):
     if ctx.me.is_external:
         return []
     u = t("users")
-    return [dict(r) for r in ctx.conn.execute(
-        select(u.c.id, u.c.display_name, u.c.department, u.c.roles, u.c.is_external)
-        .where(u.c.is_active).order_by(u.c.display_name)).mappings()]
+    # Integrations and break-glass identities aren't assignable; the bank's agents are (marked as agents).
+    return [{**{k: v for k, v in r.items() if k != "idp_subject"}, "is_agent": (r["idp_subject"] or "").startswith("agent:")}
+            for r in ctx.conn.execute(
+        select(u.c.id, u.c.display_name, u.c.department, u.c.roles, u.c.is_external, u.c.idp_subject)
+        .where(u.c.is_active, ~u.c.idp_subject.like("automation:%"), ~u.c.idp_subject.like("breakglass:%"))
+        .order_by(u.c.display_name)).mappings()]
 
 
 @router.get("/test-programmes", tags=["programmes"])
@@ -371,6 +375,38 @@ def break_glass_sessions(ctx: Ctx = D):
     from ..services import breakglass
     require_role(ctx, Role.ADMIN, Role.RISK, Role.AUDITOR)
     return breakglass.open_sessions(ctx.conn)
+
+
+# ---- Activity updates and the bank's own agents ----
+@router.post("/test-activities/{activity_id}/updates", status_code=201, tags=["activities"],
+             summary="Post a progress note on an activity (owner, test manager or the agent that owns it)")
+def post_activity_update(activity_id: UUID, data: sc.ActivityUpdateIn, ctx: Ctx = D):
+    return work.post_activity_update(ctx, activity_id, data.message)
+
+
+@router.post("/test-activities/{activity_id}/runbook/run-requests", status_code=201, tags=["agents"],
+             summary="An agent asks for its activity's runbook to run; a person decides")
+def request_runbook_run(activity_id: UUID, data: sc.RunRequestIn, ctx: Ctx = D):
+    from ..services import agents
+    return agents.request_run(ctx, activity_id, data.reason)
+
+
+@router.post("/run-requests/{request_id}/decision", tags=["agents"], summary="Approve or decline an agent's run request")
+def decide_run_request(request_id: UUID, data: sc.RunDecisionIn, ctx: Ctx = D):
+    from ..services import agents
+    return agents.decide(ctx, request_id, data.approve, data.note)
+
+
+@router.get("/agents", tags=["agents"], summary="Agents, what they did, and their accountable people (oversight)")
+def list_agents(ctx: Ctx = D):
+    from ..services import agents
+    return agents.overview(ctx)
+
+
+@router.post("/agents/{agent_id}/suspend", tags=["agents"], summary="Suspend an agent at once")
+def suspend_agent(agent_id: UUID, data: sc.SuspendIn, ctx: Ctx = D):
+    from ..services import agents
+    return agents.suspend(ctx, agent_id, data.reason)
 
 
 # ---- Runbook automation (Ansible Automation Platform) ----

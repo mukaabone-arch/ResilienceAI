@@ -70,6 +70,7 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `TEAMS_WEBHOOK_URL` | worker | none | Teams Workflows webhook URL; leave empty to send mail only |
 | `ACK_SLA_HOURS`, `NOTIFICATION_MAX_ATTEMPTS` | worker | `48`, `5` | |
 | `AAP_TOKEN` (name set per integration), `AAP_CA_BUNDLE` | api, worker | none | Ansible Automation Platform token from the vault; the bank's CA bundle if AAP uses an internal CA |
+| `AGENT_RATE_PER_MIN` | api | `60` | Most calls one AI agent may make per minute |
 | `MONITORING_TOKEN` | api | none | Turns on `GET /health/deep` for monitoring tools (header `X-Monitoring-Token`); from the vault |
 | `AUDIT_VERIFY_HOURS` | worker | `24` | How often the worker re-verifies each organisation's audit trail |
 | `API_URL` | web build | `http://api:8000` | Build argument: Next.js fixes rewrites at build time |
@@ -415,6 +416,52 @@ the connection.
 `dev-aap-token`) with a few DR job templates; one always fails, for demos. Register it with `add-aap ... --token-env
 AAP_TOKEN`, then run the API and worker with `AAP_TOKEN=dev-aap-token`. To have it send notifications too, start it
 with `FAKE_AAP_WEBHOOK=<printed URL>` and `FAKE_AAP_WEBHOOK_TOKEN=<printed secret>`.
+
+## The bank's own AI agents
+
+The bank builds and runs its agents (for example a DBA agent on its own AI platform); ResilienceAI governs what they
+can do here. An agent is a **stakeholder like a person**: added to a test, assigned activities, and accountable through a
+named person.
+
+| An agent can | An agent can never |
+|---|---|
+| Read the tests it's part of and its own work | Approve anything, record a go / no-go, grant exceptions |
+| Accept an assignment | Review activities or accept / reject evidence |
+| Start its own activities, submit them, report blockers | Change a test's stage, link or launch a runbook, cancel a run |
+| Post progress updates on its activities | Touch activities assigned to someone else |
+| Attach evidence (scanned and pre-checked like any upload) | See other tests, people lists or oversight screens |
+| **Ask** for its activity's Ansible runbook to run | Run it: its accountable person or the test manager approves or declines |
+
+Each agent has a **purpose**, an **accountable person** (told at once about its blockers and run requests), **scopes**
+(`read`, `acknowledge`, `update_status`, `report_blocker`, `post_update`, `attach_evidence`, `request_run`), and a key
+that **expires** (at most a year) and is stored only as a hash. The API refuses any endpoint outside the agent's scopes
+(deny by default) and every decision path checks for a person as well. Every call, allowed or refused, goes into the
+agent action log; every change is in the audit trail under the agent's name ("DBA Agent (agent)").
+
+**Register an agent** (operations, owner database login):
+
+```bash
+docker compose run --rm migrate python -m scripts.agents add BANK "DBA Agent" --accountable rahul.dba@bank.example \
+  --purpose "Checks Data Guard lag and prepares recovery points for DR tests" \
+  --scopes read,acknowledge,update_status,report_blocker,post_update,attach_evidence,request_run --days 90
+```
+
+The key is printed once: store it in the vault the agent reads from. `rotate`, `scopes`, `resume` and `list` manage it.
+Administrators, risk and the accountable person can **suspend** an agent from the **AI agents** panel on the Reports
+page (its key stops working at once and its pending requests are withdrawn); operations resumes it after review.
+
+**Connect the agent.** Either call the REST API with `Authorization: Bearer <key>`, or give the agent the bundled MCP
+server, which exposes the same actions as tools (`my_work`, `test_activities`, `acknowledge_assignment`,
+`set_activity_status`, `report_blocker`, `post_update`, `attach_evidence`, `request_runbook_run`):
+
+```json
+{ "mcpServers": { "resilienceai": {
+    "command": "python", "args": ["scripts/mcp_agent_server.py"],
+    "env": { "RESILIENCEAI_URL": "https://resilience.bank.example", "RESILIENCEAI_AGENT_KEY": "<from the vault>" } } } }
+```
+
+A run an agent asks for appears on the activity with its reason; **Approve and run** launches it on that person's
+approval (the run is recorded as approved by them), **Decline** needs a note. Requests expire after 30 minutes.
 
 ## Monitoring
 

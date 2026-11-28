@@ -52,6 +52,7 @@ class Settings:
     # Monitoring: GET /health/deep needs this token (header X-Monitoring-Token); unset, the endpoint is off.
     monitoring_token: str = os.getenv("MONITORING_TOKEN", "")
     audit_verify_hours: int = int(os.getenv("AUDIT_VERIFY_HOURS", "24"))
+    agent_rate_per_min: int = int(os.getenv("AGENT_RATE_PER_MIN", "60"))
     # EVIDENCE_STORE=s3: any S3-compatible store (AWS S3, MinIO, others). Credentials come from the standard AWS
     # sources (environment, instance or workload role); set EVIDENCE_S3_ENDPOINT for a non-AWS store.
     evidence_s3_bucket: str = os.getenv("EVIDENCE_S3_BUCKET", "")

@@ -35,7 +35,9 @@ class SimClock:
     blocked, what overran). Demo data only: it swaps the clock the services and the audit trail read."""
     MODULES = ("app.services.common", "app.services.work", "app.services.events", "app.services.evidence",
                "app.services.people", "app.services.views", "app.services.decisions", "app.services.lessons",
-               "app.services.reports", "app.ai.prechecks", "app.ai.facts", "app.ai.service")
+               "app.services.reports", "app.services.automation", "app.services.agents", "app.ai.prechecks", "app.ai.facts",
+               "app.ai.service")
+    # Every module that imports common.now must be listed: one imported while the clock runs would keep the fake.
 
     def __init__(self):
         import importlib

@@ -8,7 +8,7 @@ import { GoDecision, GoDecisionDialog } from "@/components/Decisions";
 import { DependencyMap } from "@/components/DependencyMap";
 import { useEvidenceUpload } from "@/components/EvidenceUpload";
 import { LessonsPanel } from "@/components/Lessons";
-import { RUN_ACTIVE, RunbookButtons, RunbookLine } from "@/components/Runbook";
+import { RUN_ACTIVE, RunbookButtons, RunbookLine, RunRequest } from "@/components/Runbook";
 import { PrecheckDetails, PrecheckLine, openWarnings, type Finding } from "@/components/Precheck";
 import { ReadinessGate } from "@/components/ReadinessGate";
 import { ErrorNotice, Loading, Panel, Pill, useAction, useDialog } from "@/components/ui";
@@ -139,7 +139,7 @@ export function ActivitiesTab(ctx: Ctx) {
   const refresh = () => { reload(); reloadMap(); reloadEvent(); };
   const { run, feedback } = useAction(refresh);
   // While an Ansible job is running, keep the list current (the worker and AAP's notifications update it).
-  const running = (acts ?? []).some((a) => a.runbook?.last_run && RUN_ACTIVE.includes(a.runbook.last_run.status));
+  const running = (acts ?? []).some((a) => (a.runbook?.last_run && RUN_ACTIVE.includes(a.runbook.last_run.status)) || a.run_request);
   useEffect(() => {
     if (!running) return;
     const t = setInterval(() => { reload(); reloadMap(); }, 5000);
@@ -181,8 +181,10 @@ export function ActivitiesTab(ctx: Ctx) {
                 <tr key={a.id}>
                   <td><span className="code">{a.activity_code}</span><div className="title" style={{ fontSize: "var(--t-sm)" }}>{a.title}</div>
                     {a.blocked_reason && <div className="sub" style={{ color: "var(--blocked)" }}>{a.blocked_reason}</div>}
-                    <RunbookLine a={a} /></td>
-                  <td>{a.owner_name ?? <span className="muted">Unassigned</span>}</td>
+                    <RunbookLine a={a} />
+                    {!me.is_external && <RunRequest a={a} ev={ev} meId={me.user_id} run={run} />}</td>
+                  <td>{a.owner_name ? <>{a.owner_name.replace(/ \(agent\)$/, "")}{/ \(agent\)$/.test(a.owner_name) && <span className="agent-tag">AI agent</span>}</>
+                    : <span className="muted">Unassigned</span>}</td>
                   <td className={a.is_overdue ? "overdue" : ""}>{fmtDateTime(a.due_at, ev.timezone)}</td>
                   <td><Pill value={a.status} />
                     {a.status === "Not Started" && <div style={{ marginTop: 4 }}><Pill value={a.dependency_state} dep /></div>}

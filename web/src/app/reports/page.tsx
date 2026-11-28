@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { OversightLog } from "@/components/Assistant";
 import { SystemHealth } from "@/components/SystemHealth";
+import { AgentsPanel } from "@/components/Agents";
 import { ErrorNotice, Loading, Panel, Pill, useAction } from "@/components/ui";
 import { downloadFile, useApi } from "@/lib/api";
 import { TIMEZONES, fmtDateTime } from "@/lib/format";
@@ -61,6 +62,7 @@ export default function Reports() {
             )}
           </Panel>
           {hasRole(me, "EnterpriseProgrammeAdministrator", "RiskCompliance", "Auditor") && <SystemHealth />}
+          {me && !me.is_external && <AgentsPanel />}
           {hasRole(me, "EnterpriseProgrammeAdministrator", "DRProgrammeManager", "RiskCompliance", "Auditor") && <OversightLog />}
         </div>
         <div className="stack">
