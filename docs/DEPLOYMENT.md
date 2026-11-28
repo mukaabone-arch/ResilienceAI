@@ -69,6 +69,7 @@ Migrations run as the table owner (`WORKER_DATABASE_URL`). The API connects as `
 | `GRAPH_SENDER` | worker | none | Mailbox ResilienceAI sends mail and invitations from, e.g. `resilience@bank.example` |
 | `TEAMS_WEBHOOK_URL` | worker | none | Teams Workflows webhook URL; leave empty to send mail only |
 | `ACK_SLA_HOURS`, `NOTIFICATION_MAX_ATTEMPTS` | worker | `48`, `5` | |
+| `AAP_TOKEN` (name set per integration), `AAP_CA_BUNDLE` | api, worker | none | Ansible Automation Platform token from the vault; the bank's CA bundle if AAP uses an internal CA |
 | `MONITORING_TOKEN` | api | none | Turns on `GET /health/deep` for monitoring tools (header `X-Monitoring-Token`); from the vault |
 | `AUDIT_VERIFY_HOURS` | worker | `24` | How often the worker re-verifies each organisation's audit trail |
 | `API_URL` | web build | `http://api:8000` | Build argument: Next.js fixes rewrites at build time |
@@ -367,6 +368,53 @@ The compose file is a complete single-host deployment for demos and internal tes
    reject non-default `temperature`, so none is sent.
 8. **Monitoring.** Done in the app: `/health/deep` and the System health panel (see "Monitoring"). Still to set up
    with the bank: container logs to the SIEM, and alerts wired to `/health/deep`.
+
+## Runbook automation (Ansible Automation Platform)
+
+ResilienceAI still never runs commands itself. An activity can be **linked to a job template in the bank's Ansible
+Automation Platform (AAP)**; a person approves each run; AAP runs it under its own access controls; and ResilienceAI
+follows the job, so nobody types updates:
+
+| AAP job | Activity |
+|---|---|
+| pending / running | In Progress (the person's approval and the exact variables sent are in the audit trail) |
+| successful | The job output is stored as evidence (scanned and pre-checked); the activity is submitted for review, or completed if it has no reviewer |
+| failed / error | Blocked, with the failed task, host and message and a link to the job; the owner, the test manager and everyone downstream are told |
+| canceled | Blocked ("cancelled in Ansible") |
+
+Pausing, aborting or cancelling the test cancels its running jobs. A job running past its limit alerts the owner and
+the test manager (it isn't stopped automatically).
+
+### Set up (bank's automation team)
+
+1. **An AAP user for ResilienceAI** with **Execute** permission on only the job templates ResilienceAI may run (and
+   read on their jobs). Create a token for it (AAP 2.5: *Access Management > Users > Tokens*) and put it in the vault.
+2. Job templates that take variables from ResilienceAI need **Prompt on launch** for variables. ResilienceAI always
+   adds `resilienceai_run`, `resilienceai_event` and `resilienceai_activity` (it uses the first to find a job if a
+   launch's answer is lost); without the prompt AAP ignores them and the job still runs.
+3. Register AAP in ResilienceAI (the API root is `/api/controller/v2` from AAP 2.5, `/api/v2` before):
+
+   ```bash
+   docker compose run --rm migrate python -m scripts.automation add-aap BANK "Bank AAP" https://aap.bank.example/api/controller/v2 --token-env AAP_TOKEN
+   ```
+
+   It prints a webhook URL and secret once. Set `AAP_TOKEN` (and `AAP_CA_BUNDLE` for an internal CA) on the API and
+   worker.
+4. **Notifications in AAP** (so updates arrive within seconds): *Administration > Notifiers > Add*, type **Webhook**,
+   the printed URL, method POST, header `{"Authorization": "Bearer <secret>"}`. Attach it to the linked job templates
+   (or the organisation) for **Start**, **Success** and **Failure**. ResilienceAI treats a notification only as a
+   doorbell: it asks AAP for the job's real state. Without notifications the worker still checks every running job
+   each minute.
+
+In the app, a test manager uses **Link runbook** on an activity (choosing from the templates the AAP user can see, with
+fixed variables); the owner or test manager presses **Run in Ansible** and confirms. Runs need that approval until an
+autonomy policy approved by the CISO allows otherwise. `scripts.automation list`, `rotate-webhook` and `disable` manage
+the connection.
+
+**Try it without AAP:** `python -m scripts.fake_aap` serves a stand-in on `http://127.0.0.1:8052/api/v2` (token
+`dev-aap-token`) with a few DR job templates; one always fails, for demos. Register it with `add-aap ... --token-env
+AAP_TOKEN`, then run the API and worker with `AAP_TOKEN=dev-aap-token`. To have it send notifications too, start it
+with `FAKE_AAP_WEBHOOK=<printed URL>` and `FAKE_AAP_WEBHOOK_TOKEN=<printed secret>`.
 
 ## Monitoring
 

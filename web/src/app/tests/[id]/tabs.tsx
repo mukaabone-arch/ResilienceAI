@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ActivityActions } from "@/components/ActivityActions";
 import { AssistantCards, MessageDrafts } from "@/components/Assistant";
 import { GoDecision, GoDecisionDialog } from "@/components/Decisions";
 import { DependencyMap } from "@/components/DependencyMap";
 import { useEvidenceUpload } from "@/components/EvidenceUpload";
 import { LessonsPanel } from "@/components/Lessons";
+import { RUN_ACTIVE, RunbookButtons, RunbookLine } from "@/components/Runbook";
 import { PrecheckDetails, PrecheckLine, openWarnings, type Finding } from "@/components/Precheck";
 import { ReadinessGate } from "@/components/ReadinessGate";
 import { ErrorNotice, Loading, Panel, Pill, useAction, useDialog } from "@/components/ui";
@@ -137,6 +138,13 @@ export function ActivitiesTab(ctx: Ctx) {
   const { data: people } = useApi<any[]>(ev.can_manage ? `/test-events/${ev.id}/stakeholders` : null);
   const refresh = () => { reload(); reloadMap(); reloadEvent(); };
   const { run, feedback } = useAction(refresh);
+  // While an Ansible job is running, keep the list current (the worker and AAP's notifications update it).
+  const running = (acts ?? []).some((a) => a.runbook?.last_run && RUN_ACTIVE.includes(a.runbook.last_run.status));
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => { reload(); reloadMap(); }, 5000);
+    return () => clearInterval(t);
+  }, [running, reload, reloadMap]);
   const { ask, node } = useDialog();
 
   async function add() {
@@ -172,13 +180,18 @@ export function ActivitiesTab(ctx: Ctx) {
               {acts.map((a) => (
                 <tr key={a.id}>
                   <td><span className="code">{a.activity_code}</span><div className="title" style={{ fontSize: "var(--t-sm)" }}>{a.title}</div>
-                    {a.blocked_reason && <div className="sub" style={{ color: "var(--blocked)" }}>{a.blocked_reason}</div>}</td>
+                    {a.blocked_reason && <div className="sub" style={{ color: "var(--blocked)" }}>{a.blocked_reason}</div>}
+                    <RunbookLine a={a} /></td>
                   <td>{a.owner_name ?? <span className="muted">Unassigned</span>}</td>
                   <td className={a.is_overdue ? "overdue" : ""}>{fmtDateTime(a.due_at, ev.timezone)}</td>
                   <td><Pill value={a.status} />
                     {a.status === "Not Started" && <div style={{ marginTop: 4 }}><Pill value={a.dependency_state} dep /></div>}
                     {a.review_status === "Pending" && a.status === "Submitted" && <div className="sub">Awaiting review</div>}</td>
-                  <td><ActivityActions a={a} meId={me.user_id} canManage={ev.can_manage} run={run} /></td>
+                  <td><div className="act-cell">
+                    {!me.is_external && <div className="task-actions"><RunbookButtons a={a} ev={ev} meId={me.user_id} canManage={ev.can_manage} run={run} /></div>}
+                    {!a.runbook?.last_run || !RUN_ACTIVE.includes(a.runbook.last_run.status)
+                      ? <ActivityActions a={a} meId={me.user_id} canManage={ev.can_manage} run={run} /> : null}
+                  </div></td>
                 </tr>
               ))}
               {!acts.length && <tr><td colSpan={5} className="muted">No activities yet.</td></tr>}

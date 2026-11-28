@@ -472,6 +472,9 @@ def transition(ctx: Ctx, event_id: UUID, action: str, *, reason: str | None = No
             tenant_id=ctx.me.tenant_id, event_id=event_id, approval_type=AT.PLAN.value, approver_user_id=ctx.me.user_id,
             decision="Approved" if action == "approve_plan" else "Rejected", comments=reason,
             event_version=ev["version"], policy_version=authz.POLICY_VERSION))
+    if action in ("pause", "abort", "cancel"):
+        from .automation import cancel_for_event
+        cancel_for_event(ctx, event_id, f"test {LOG_TEXT.get(action, action).lower()}")
     if action == "pause":
         supersede_approvals(ctx, event_id, [AT.RESUME])
     if action == "resume":

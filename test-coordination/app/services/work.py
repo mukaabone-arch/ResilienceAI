@@ -98,6 +98,11 @@ def list_activities(ctx: Ctx, event_id: UUID) -> list[dict]:
         x["is_overdue"] = bool(x["due_at"] and x["due_at"] < now() and x["status"] != "Completed")
     if ctx.me.is_external:  # vendors see only their own assignments
         acts = [x for x in acts if x["owner_user_id"] == ctx.me.user_id]
+    else:
+        from .automation import for_activities
+        runbooks = for_activities(ctx, [x["id"] for x in acts])
+        for x in acts:
+            x["runbook"] = runbooks.get(x["id"])
     _ = ev
     return acts
 
@@ -130,7 +135,7 @@ def update_activity(ctx: Ctx, activity_id: UUID, data: dict) -> dict:
         values["due_at"] = data["due_at"]
 
     if data.get("status") and data["status"] != act["status"]:
-        if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev)):
+        if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev) or ctx.me.is_automation):
             raise Forbidden("Only the activity owner, their alternate or the test manager can update status")
         _require_workable(ev)
         requested = A(data["status"])
@@ -356,7 +361,7 @@ def check_can_submit_evidence(ctx: Ctx, *, activity_id: UUID | None = None, read
     else:
         target, ev = child_of_event(ctx, "test_readiness_items", readiness_item_id)  # type: ignore[arg-type]
         allowed = ctx.me.user_id == target["owner_user_id"]
-    if not (allowed or authz.can_manage_event(ctx, ev)):
+    if not (allowed or authz.can_manage_event(ctx, ev) or (ctx.me.is_automation and activity_id)):
         raise Forbidden("Only the owner or test manager can submit evidence here")
     if S(ev["lifecycle_status"]) in (S.CLOSED, S.CANCELLED, S.DRAFT):
         raise Conflict(f"Evidence cannot be submitted while the event is {ev['lifecycle_status']}")

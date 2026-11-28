@@ -116,6 +116,25 @@ def break_glass_end(request: Request):
     return breakglass.end(_bg_token(request))
 
 
+@app.post("/api/v1/integrations/{integration_id}/aap-events", tags=["automation"],
+          summary="AAP job notification (webhook); authenticated by the integration's secret")
+async def aap_event(integration_id: str, request: Request):
+    from uuid import UUID as _U
+
+    from .services import automation
+    try:
+        iid = _U(integration_id)
+    except ValueError:
+        return JSONResponse(status_code=404, content={"error": "Unknown integration"})
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else request.headers.get("x-resilienceai-token", "")
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    return automation.webhook(iid, token, body if isinstance(body, dict) else {})
+
+
 @app.get("/health/deep", tags=["ops"], summary="Monitoring: worker, delivery, scanning, audit verification (token)")
 def health_deep(request: Request):
     import hmac

@@ -311,3 +311,11 @@ class LessonApplyIn(Model):
 
 class LessonDismissIn(Model):
     reason: str = Field(min_length=1, max_length=2000)
+
+
+class RunbookLinkIn(Model):
+    integration_id: UUID
+    job_template_id: int = Field(gt=0)
+    extra_vars: dict[str, Any] = Field(default_factory=dict)
+    timeout_minutes: int = Field(default=120, ge=1, le=1440)
+    launch_mode: Literal["approve", "auto"] = "approve"

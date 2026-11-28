@@ -37,6 +37,7 @@ class Principal:
     display_name: str
     roles: frozenset[str]
     is_external: bool
+    is_automation: bool = False     # an integration acting on its linked activities (never a person)
 
     def has(self, *roles: Role) -> bool:
         return any(r.value in self.roles for r in roles)
