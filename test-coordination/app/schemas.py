@@ -336,3 +336,18 @@ class RunDecisionIn(Model):
 
 class SuspendIn(Model):
     reason: str = Field(min_length=1, max_length=1000)
+
+
+class PolicyDraftIn(Model):
+    rules: list[dict[str, Any]]
+    rationale: str = Field(default="", max_length=5000)
+    review_by: date
+
+
+class PolicyDecisionIn(Model):
+    approve: bool
+    note: str = Field(min_length=1, max_length=2000)
+
+
+class RevokeIn(Model):
+    reason: str = Field(min_length=1, max_length=2000)

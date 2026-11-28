@@ -94,3 +94,5 @@ class Role(StrEnum):
     SENIOR_MGMT = "SeniorManagement"
     VENDOR = "ExternalVendor"
     AUDITOR = "Auditor"
+    MODEL_RISK = "ModelRiskCommittee"      # proposes the autonomy policy for automation and AI agents
+    CISO = "CISO"                          # final authority: approves or revokes the autonomy policy

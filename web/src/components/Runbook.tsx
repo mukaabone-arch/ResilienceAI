@@ -35,7 +35,9 @@ export function RunbookLine({ a }: { a: any }) {
         </span>
       )}
       {r?.status === "Successful" && r.evidence_id && <span className="rb-soft">output attached as evidence</span>}
-      {r && <span className="rb-soft">approved by {r.approved_by_name}{rb.runs > 1 ? `, run ${r.attempt}` : ""}</span>}
+      {r && <span className="rb-soft">{r.approved_by_name ? `approved by ${r.approved_by_name}`
+        : `started under autonomy policy v${r.policy_version} (${r.policy_rule})`}{rb.runs > 1 ? `, run ${r.attempt}` : ""}</span>}
+      {rb.launch_mode === "auto" && !r && <span className="rb-soft">starts on its own when prerequisites are done</span>}
     </div>
   );
 }
@@ -120,6 +122,7 @@ function LinkDialog({ a, onDone }: { a: any; onDone: (msg?: string) => void }) {
   const [tpl, setTpl] = useState<number | null>(a.runbook?.job_template_id ?? null);
   const [vars, setVars] = useState(a.runbook ? JSON.stringify(a.runbook.extra_vars ?? {}, null, 2) : "{}");
   const [timeout, setTimeoutMin] = useState(String(a.runbook?.timeout_minutes ?? 120));
+  const [mode, setMode] = useState<string>(a.runbook?.launch_mode ?? "approve");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -149,7 +152,7 @@ function LinkDialog({ a, onDone }: { a: any; onDone: (msg?: string) => void }) {
     setBusy(true); setError(null);
     try {
       await api("PUT", `/test-activities/${a.id}/runbook`, { integration_id: integ, job_template_id: tpl, extra_vars: parsed,
-        timeout_minutes: Number(timeout) });
+        timeout_minutes: Number(timeout), launch_mode: mode });
       onDone(`${a.activity_code} linked to "${chosen?.name ?? "the job template"}"`);
     } catch (e) { setError(e); setBusy(false); }
   }
@@ -196,6 +199,12 @@ function LinkDialog({ a, onDone }: { a: any; onDone: (msg?: string) => void }) {
                 <div className="field"><label htmlFor="rb-to">Alert if running longer than (minutes)</label>
                   <input id="rb-to" className="input" type="number" min={1} max={1440} value={timeout} onChange={(e) => setTimeoutMin(e.target.value)} /></div>
               </div>
+              <div className="field"><label htmlFor="rb-mode">When it runs</label>
+                <select id="rb-mode" className="select" value={mode} onChange={(e) => setMode(e.target.value)}>
+                  <option value="approve">When a person approves each run</option>
+                  <option value="auto">On its own, once prerequisites are done (only if the autonomy policy allows it)</option>
+                </select>
+                <span className="hint">Running on its own needs a rule in the autonomy policy approved by the CISO; otherwise linking is refused with the reason.</span></div>
             </>
           )}
         </div>

@@ -32,6 +32,8 @@ USERS = [
     ("leela.cio", "Leela Srinivasan", ["SeniorManagement"], "Office of the CIO", False),
     ("ext.vendor", "Tom Becker (Vendor)", ["ExternalVendor"], "StorageCo", True),
     ("audit.ia", "Neha Joshi", ["Auditor"], "Internal Audit", False),
+    ("nisha.mrc", "Nisha Rao", ["ModelRiskCommittee"], "Model Risk Management", False),
+    ("vikas.ciso", "Vikas Menon", ["CISO"], "Information Security", False),
 ]
 
 CORE_BANKING_TEMPLATE = {

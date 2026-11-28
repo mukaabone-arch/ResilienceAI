@@ -101,9 +101,8 @@ def link(ctx: Ctx, activity_id: UUID, *, integration_id: UUID, job_template_id: 
     authz.require_manage(ctx, ev)
     if S(ev["lifecycle_status"]) in (S.CLOSURE, S.CLOSED, S.CANCELLED):
         raise Conflict("This test is closing or closed; runbooks can't be linked now")
-    if launch_mode != "approve":
-        raise Conflict("Launching without a person's approval needs an autonomy policy approved by the CISO. "
-                       "Until then each run is approved by the activity owner or the test manager.")
+    if launch_mode not in ("approve", "auto"):
+        raise Unprocessable("launch_mode must be approve or auto")
     if not act["stakeholder_id"]:
         raise Unprocessable("Assign the activity to a person first: someone stays accountable for what the runbook does")
     if _active_run(ctx, activity_id):
@@ -118,12 +117,17 @@ def link(ctx: Ctx, activity_id: UUID, *, integration_id: UUID, job_template_id: 
         tpl = _client(integ).job_template(job_template_id)
     except aap.AAPError as e:
         raise Conflict(f"Couldn't check the job template: {e.message}") from e
+    if launch_mode == "auto":
+        from .autonomy import allows_auto_launch
+        ok, why = allows_auto_launch(ctx.conn, integration_id, tpl["id"], ev["criticality"])
+        if not ok:
+            raise Conflict(f"{why}. It can still be linked to run on a person's approval.")
     if extra_vars and not tpl["ask_variables_on_launch"]:
         raise Unprocessable(f"Job template '{tpl['name']}' doesn't accept variables at launch. Turn on 'Prompt on launch' "
                             "for variables in AAP, or link it without variables.")
     rb = t("activity_runbooks")
     values = dict(integration_id=integration_id, job_template_id=tpl["id"], job_template_name=tpl["name"][:250],
-                  extra_vars=extra_vars, timeout_minutes=timeout_minutes, launch_mode="approve",
+                  extra_vars=extra_vars, timeout_minutes=timeout_minutes, launch_mode=launch_mode,
                   linked_by=ctx.me.user_id, linked_at=now())
     old = _runbook(ctx, activity_id)
     if old:
@@ -135,7 +139,7 @@ def link(ctx: Ctx, activity_id: UUID, *, integration_id: UUID, job_template_id: 
     audit.record(ctx, "automation.linked", "Activity", activity_id, event_id=ev["id"],
                  old={"job_template": old["job_template_name"]} if old else None,
                  new={"integration": integ["name"], "job_template_id": tpl["id"], "job_template": tpl["name"],
-                      "extra_vars": extra_vars, "timeout_minutes": timeout_minutes})
+                      "extra_vars": extra_vars, "timeout_minutes": timeout_minutes, "launch_mode": launch_mode})
     log(ctx, ev["id"], "Status", f"{act['activity_code']} linked to Ansible job template '{tpl['name']}' in {integ['name']}",
         activity_id=activity_id)
     return new
@@ -175,7 +179,7 @@ def _graph_waiting(ctx: Ctx, ev: dict, activity_id: UUID) -> list[str]:
 def run(ctx: Ctx, activity_id: UUID) -> dict:
     """A person approves and launches the linked job template. Returns the run (status Error if AAP refused)."""
     from .agents import accountable_for
-    from .work import _is_activity_owner, update_activity
+    from .work import _is_activity_owner
     authz.require_human(ctx, "approve a runbook run (an agent can ask for one)")
     act, ev = child_of_event(ctx, "test_activities", activity_id, for_update=True)
     if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev) or accountable_for(ctx, act)):
@@ -186,15 +190,28 @@ def run(ctx: Ctx, activity_id: UUID) -> dict:
     rb = _runbook(ctx, activity_id)
     if not rb:
         raise NotFound("This activity isn't linked to a runbook")
+    preflight(ctx, act, ev)
+    return _launch(ctx, act, ev, rb, approved_by=ctx.me.user_id)
+
+
+def preflight(ctx: Ctx, act: dict, ev: dict) -> None:
+    """What must be true for any run, however it is approved."""
     if S(ev["lifecycle_status"]) not in (S.MOBILISING, S.READINESS, S.READY, S.LIVE):
         raise Conflict(f"Runbooks can run while a test is being prepared or is live, not while it is {ev['lifecycle_status']}")
     if act["status"] in (A.SUBMITTED.value, A.COMPLETED.value):
         raise Conflict(f"{act['activity_code']} is already {act['status'].lower()}")
-    if _active_run(ctx, activity_id):
+    if _active_run(ctx, act["id"]):
         raise Conflict("This runbook is already running")
-    waiting = _graph_waiting(ctx, ev, activity_id) if act["status"] == A.NOT_STARTED.value else []
+    waiting = _graph_waiting(ctx, ev, act["id"]) if act["status"] == A.NOT_STARTED.value else []
     if waiting:
         raise Conflict("Mandatory prerequisites are not complete", [f"Waiting on {c}" for c in waiting])
+
+
+def _launch(ctx: Ctx, act: dict, ev: dict, rb: dict, *, approved_by: UUID | None, policy: dict | None = None,
+            rule: dict | None = None, note: str | None = None, also_tell: list | None = None) -> dict:
+    """Start the linked job template. A person approved it (approved_by), or a rule of the autonomy policy allows it."""
+    from .work import update_activity
+    activity_id = act["id"]
     integ = _integration(ctx, rb["integration_id"])
     ru = t("automation_runs")
     attempt = (ctx.conn.execute(select(ru.c.attempt).where(ru.c.activity_id == activity_id)
@@ -204,7 +221,8 @@ def run(ctx: Ctx, activity_id: UUID) -> dict:
                  "resilienceai_activity": act["activity_code"]}
     rec = dict(ctx.conn.execute(insert(ru).values(
         id=run_id, tenant_id=ctx.me.tenant_id, event_id=ev["id"], activity_id=activity_id, runbook_id=rb["id"],
-        attempt=attempt, job_template_id=rb["job_template_id"], extra_vars=variables, approved_by=ctx.me.user_id)
+        attempt=attempt, job_template_id=rb["job_template_id"], extra_vars=variables, approved_by=approved_by,
+        policy_id=policy["id"] if policy else None, policy_rule=rule["name"] if rule else None)
         .returning(ru)).mappings().one())
     client = None
     try:
@@ -225,13 +243,26 @@ def run(ctx: Ctx, activity_id: UUID) -> dict:
         external_job_id=job_id, external_url=client.job_url(job_id), status="Pending").returning(ru)).mappings().one())
     audit.record(ctx, "automation.launched", "Activity", activity_id, event_id=ev["id"],
                  new={"run": str(run_id), "attempt": attempt, "integration": integ["name"], "job_template": rb["job_template_name"],
-                      "job": job_id, "extra_vars": variables, "approved_by": ctx.me.display_name})
+                      "job": job_id, "extra_vars": variables,
+                      "approved_by": ctx.me.display_name if approved_by else None,
+                      "policy": f"v{policy['version']} rule '{rule['name']}'" if policy else None})
+    how = (f" under autonomy policy v{policy['version']} ('{rule['name']}')" if policy else "") + (f"; {note}" if note else "")
     if act["status"] in (A.NOT_STARTED.value, A.BLOCKED.value):
         update_activity(ctx, activity_id, {"status": A.IN_PROGRESS.value,
-                                           "comment": f"Ansible job {job_id} launched ('{rb['job_template_name']}')"})
+                                           "comment": f"Ansible job {job_id} launched ('{rb['job_template_name']}'){how}"})
     else:
-        log(ctx, ev["id"], "Status", f"{act['activity_code']}: Ansible job {job_id} launched ('{rb['job_template_name']}')",
+        log(ctx, ev["id"], "Status", f"{act['activity_code']}: Ansible job {job_id} launched ('{rb['job_template_name']}'){how}",
             activity_id=activity_id)
+    if policy:                          # nobody pressed Run: tell the people answerable for the activity
+        owner = ctx.conn.execute(select(t("test_stakeholders").c.user_id).where(
+            t("test_stakeholders").c.id == act["stakeholder_id"])).scalar() if act["stakeholder_id"] else None
+        notifications.enqueue(ctx, "announcement", event=ev, activity_id=activity_id, actor=None,
+                              recipients=[owner, ev["test_manager_user_id"], *(also_tell or [])],
+                              subject=f"[{ev['event_code']}] {act['activity_code']}: Ansible job {job_id} started without a "
+                                      f"person's approval",
+                              body=f"Allowed by autonomy policy v{policy['version']}, rule '{rule['name']}' (approved by the CISO)."
+                                   + (f" {note}." if note else "") + " Cancel it from the Activities tab if it shouldn't run.",
+                              dedupe=f"auto-run:{run_id}")
     return rec
 
 
@@ -407,6 +438,37 @@ def _check_timeout(ctx: Ctx, rec: dict, rb: dict) -> None:
         f"{rb['timeout_minutes']}-minute limit", activity_id=act["id"])
 
 
+def auto_launch(tenant_id: UUID) -> int:
+    """Worker job: start runbooks linked to run on their own, once their prerequisites are done, if the autonomy
+    policy in force still allows it at that moment. Each starts at most once; a failure goes back to people."""
+    from .autonomy import permits
+    started = 0
+    with tenant_transaction(tenant_id) as conn:
+        rb, a, ru = t("activity_runbooks"), t("test_activities"), t("automation_runs")
+        never_run = ~select(ru.c.id).where(ru.c.runbook_id == rb.c.id).exists()
+        cands = [dict(r) for r in conn.execute(select(rb).join(a, a.c.id == rb.c.activity_id).where(and_(
+            rb.c.launch_mode == "auto", a.c.status.in_([A.NOT_STARTED.value, A.IN_PROGRESS.value]), never_run))).mappings()]
+        for rbk in cands:
+            integ = dict(conn.execute(select(t("automation_integrations")).where(
+                t("automation_integrations").c.id == rbk["integration_id"])).mappings().one())
+            if integ["disabled_at"]:
+                continue
+            ctx = _automation_ctx(conn, tenant_id, integ)
+            act = row(ctx, "test_activities", rbk["activity_id"])
+            ev = row(ctx, "test_events", act["event_id"])
+            try:
+                preflight(ctx, act, ev)
+            except Conflict:
+                continue                               # not yet: prerequisites, stage, or already running
+            pol, rule, _why = permits(conn, kind="auto_launch", integration_id=rbk["integration_id"],
+                                      job_template_id=rbk["job_template_id"], event=ev)
+            if pol is None:
+                continue                               # the policy no longer allows it: it waits for a person
+            _launch(ctx, act, ev, rbk, approved_by=None, policy=pol, rule=rule, note="prerequisites complete")
+            started += 1
+    return started
+
+
 def sync_active(tenant_id: UUID) -> dict:
     """Worker job: check every unfinished run."""
     out = {"checked": 0, "finished": 0}
@@ -463,14 +525,16 @@ def for_activities(ctx: Ctx, activity_ids: list[UUID]) -> dict[UUID, dict]:
                                  "extra_vars": r["extra_vars"], "timeout_minutes": r["timeout_minutes"],
                                  "launch_mode": r["launch_mode"], "last_run": None, "runs": 0}
     if out:
-        for r in ctx.conn.execute(select(ru, u.c.display_name.label("approved_by_name")).join(u, u.c.id == ru.c.approved_by)
+        ap = t("autonomy_policies")
+        for r in ctx.conn.execute(select(ru, u.c.display_name.label("approved_by_name"), ap.c.version.label("policy_version"))
+                                  .outerjoin(u, u.c.id == ru.c.approved_by).outerjoin(ap, ap.c.id == ru.c.policy_id)
                                   .where(ru.c.activity_id.in_(list(out))).order_by(ru.c.activity_id, ru.c.attempt.desc())).mappings():
             o = out[r["activity_id"]]
             o["runs"] += 1
             if o["last_run"] is None:
                 o["last_run"] = {k: r[k] for k in ("id", "attempt", "status", "external_job_id", "external_url", "launched_at",
                                                    "started_at", "finished_at", "failure_summary", "evidence_id",
-                                                   "approved_by_name")}
+                                                   "approved_by_name", "policy_rule", "policy_version")}
     return out
 
 

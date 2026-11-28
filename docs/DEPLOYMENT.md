@@ -95,7 +95,8 @@ object id the person. Demo sign-in and its directory endpoint are switched off.
 4. **API permissions.** Add *My APIs → ResilienceAI → access_as_user* and grant admin consent.
 5. **App roles** (recommended). Create one app role per ResilienceAI role, allowed for users/groups, with these
    exact values: `EnterpriseProgrammeAdministrator`, `DRProgrammeManager`, `TestManager`, `TeamLead`,
-   `TechnicalStakeholder`, `BusinessOwner`, `RiskCompliance`, `SeniorManagement`, `ExternalVendor`, `Auditor`.
+   `TechnicalStakeholder`, `BusinessOwner`, `RiskCompliance`, `SeniorManagement`, `ExternalVendor`, `Auditor`,
+   `ModelRiskCommittee`, `CISO`.
    Then in **Enterprise applications → ResilienceAI → Users and groups** assign people or groups to roles, and set
    *Assignment required* to Yes so only assigned people can sign in.
 
@@ -462,6 +463,33 @@ server, which exposes the same actions as tools (`my_work`, `test_activities`, `
 
 A run an agent asks for appears on the activity with its reason; **Approve and run** launches it on that person's
 approval (the run is recorded as approved by them), **Decline** needs a note. Requests expire after 30 minutes.
+
+## Autonomy policy (model-risk committee proposes, CISO approves)
+
+By default every runbook run needs a person's approval. The **autonomy policy** is how the bank allows specific runs
+without one. It lives on the **Governance** page:
+
+1. A member of the **model-risk committee** (role `ModelRiskCommittee`) drafts the policy: one or more narrow rules and
+   the committee's rationale, with a review date at most 12 months ahead, and proposes it.
+2. The **CISO** (role `CISO`) approves or rejects it with a recorded note. Nobody can decide their own proposal; one
+   policy is in force at a time, and approving a new one supersedes the old.
+3. The CISO or the committee can **revoke** the policy at once. It also lapses on its review date. Either way every run
+   goes back to needing a person (jobs already running aren't stopped).
+
+Each rule names: the AAP job templates it covers (by number), the highest test criticality, the test stages, what it
+allows (**start on its own** once an activity's prerequisites are done, and/or **approve requests** from named agents),
+and a limit on runs in 24 hours. Anything a rule doesn't cover still needs a person, and the reason is shown.
+
+- *Start on its own:* a test manager links the activity with "On its own, once prerequisites are done" (refused unless a
+  rule allows that template for the test's criticality). The worker starts it once, when prerequisites are done and the
+  policy still allows it at that moment. A failure goes back to people.
+- *Agent requests:* when a named agent asks and a rule covers it, the run starts at once and the request is recorded
+  as approved by the policy.
+
+Every such run records the policy version and rule ("started under autonomy policy v3 (Read-only standby checks)"),
+so it traces back to the CISO's approval, and the activity's owner, the test manager and the agent's accountable person
+are told. Policy drafts, proposals, decisions and revocations are in the audit trail and logged at WARNING for the SIEM.
+Add the two roles to the Entra app registration (see "App roles" above) and assign them to the right people.
 
 ## Monitoring
 
