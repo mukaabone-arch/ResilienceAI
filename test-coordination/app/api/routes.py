@@ -373,6 +373,46 @@ def break_glass_sessions(ctx: Ctx = D):
     return breakglass.open_sessions(ctx.conn)
 
 
+# ---- Runbook automation (Ansible Automation Platform) ----
+@router.get("/automation/integrations", tags=["automation"], summary="Automation platforms this organisation has connected")
+def automation_integrations(ctx: Ctx = D):
+    from ..services import automation
+    return automation.integrations(ctx)
+
+
+@router.get("/automation/integrations/{integration_id}/job-templates", tags=["automation"],
+            summary="Job templates the ResilienceAI user may run in AAP")
+def automation_templates(integration_id: UUID, search: str = "", ctx: Ctx = D):
+    from ..services import automation
+    return automation.job_templates(ctx, integration_id, search)
+
+
+@router.put("/test-activities/{activity_id}/runbook", tags=["automation"], summary="Link an activity to an AAP job template")
+def link_runbook(activity_id: UUID, data: sc.RunbookLinkIn, ctx: Ctx = D):
+    from ..services import automation
+    return automation.link(ctx, activity_id, integration_id=data.integration_id, job_template_id=data.job_template_id,
+                           extra_vars=data.extra_vars, timeout_minutes=data.timeout_minutes, launch_mode=data.launch_mode)
+
+
+@router.delete("/test-activities/{activity_id}/runbook", tags=["automation"], summary="Remove a runbook link that never ran")
+def unlink_runbook(activity_id: UUID, ctx: Ctx = D):
+    from ..services import automation
+    return automation.unlink(ctx, activity_id)
+
+
+@router.post("/test-activities/{activity_id}/runbook/run", tags=["automation"],
+             summary="Approve and launch the linked job template")
+def run_runbook(activity_id: UUID, ctx: Ctx = D):
+    from ..services import automation
+    return automation.run(ctx, activity_id)
+
+
+@router.post("/automation-runs/{run_id}/cancel", tags=["automation"], summary="Cancel a running job")
+def cancel_run(run_id: UUID, ctx: Ctx = D):
+    from ..services import automation
+    return automation.cancel(ctx, run_id)
+
+
 @router.get("/test-events/{event_id}/lessons", tags=["lessons"], summary="Lessons from related earlier tests")
 def event_lessons(event_id: UUID, ctx: Ctx = D):
     return lessons.for_event(ctx, event_id)

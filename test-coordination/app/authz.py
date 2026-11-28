@@ -55,6 +55,8 @@ def is_stakeholder(ctx: Ctx, event_id) -> bool:
 
 
 def can_view_event(ctx: Ctx, event: Mapping) -> bool:
+    if getattr(ctx.me, "is_automation", False):     # built only inside the server, for an integration's own runs
+        return True
     if ctx.me.is_external:
         return is_stakeholder(ctx, event["id"])
     if ctx.me.has(*PORTFOLIO_VIEWERS):

@@ -708,3 +708,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .bg-cancel { background: none; border: 0; padding: 0; color: #dfe5ee; font: inherit; font-size: var(--t-sm); text-decoration: underline;
   text-underline-offset: 3px; cursor: pointer; }
 .bg-cancel:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ---------- Runbook automation ---------- */
+.rb-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; margin-top: 5px; font-size: var(--t-xs); }
+.rb-tag { font-weight: 700; color: #5b3a8a; }
+.rb-name { font-weight: 600; color: var(--ink-2); }
+.rb-run { font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.rb-run.running { color: var(--live); }
+.rb-run.ok { color: var(--ready); }
+.rb-run.bad { color: var(--blocked); }
+.rb-run a { color: inherit; }
+.rb-soft { color: var(--ink-3); }
+.rb-pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: rb-pulse 1.2s ease-in-out infinite; }
+@keyframes rb-pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .rb-pulse { animation: none; } }
+.act-cell { display: grid; gap: 6px; justify-items: end; }
+.rb-templates { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; margin-bottom: 14px; }
+.rb-tpl { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: var(--r-control); cursor: pointer; font-size: var(--t-sm); }
+.rb-tpl.on { border-color: var(--action); background: var(--action-tint); }
+.rb-tpl .block { display: block; margin-top: 2px; }
+.textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
