@@ -40,6 +40,39 @@ export function RunbookLine({ a }: { a: any }) {
   );
 }
 
+/** An agent's request to run this activity's runbook, for its accountable person or the test manager to decide. */
+export function RunRequest({ a, ev, meId, run }: {
+  a: any; ev: any; meId?: string; run: (fn: () => Promise<unknown>, ok?: string | ((r: any) => string)) => void;
+}) {
+  const { ask, node } = useDialog();
+  const rq = a.run_request;
+  if (!rq) return null;
+  const canDecide = ev.can_manage || rq.accountable_user_id === meId;
+  async function decide(approve: boolean) {
+    const v = await ask(approve
+      ? { title: `Approve ${rq.agent}'s request?`, confirm: "Approve and run",
+          description: `This launches "${a.runbook?.job_template}" in ${a.runbook?.integration} now, on your approval. The agent gave this reason: ${rq.reason}` }
+      : { title: `Decline ${rq.agent}'s request`, confirm: "Decline", danger: true,
+          fields: [{ name: "note", label: "Why not, and what should happen instead?", kind: "textarea", required: true }] });
+    if (v) run(() => api("POST", `/run-requests/${rq.id}/decision`, { approve, note: (v as any).note }),
+      approve ? (r: any) => r?.run?.status === "Error" ? `Approved, but Ansible didn't start it: ${r.run.message ?? ""}` : `Approved: Ansible job ${r?.run?.external_job_id} launched`
+              : "Request declined; the agent and its owner can see why");
+  }
+  return (
+    <div className="rq">
+      <div><strong>{rq.agent}</strong> asks to run this runbook: <span className="rq-reason">{rq.reason}</span>
+        <span className="rq-when"> · {relative(rq.requested_at)}</span></div>
+      {canDecide ? (
+        <div className="rq-actions">
+          <button className="btn primary" onClick={() => decide(true)}>Approve and run</button>
+          <button className="btn" onClick={() => decide(false)}>Decline</button>
+        </div>
+      ) : <div className="xs muted">Waiting for its accountable person or the test manager.</div>}
+      {node}
+    </div>
+  );
+}
+
 /** Buttons for the actions column. */
 export function RunbookButtons({ a, ev, meId, canManage, run }: {
   a: any; ev: any; meId?: string; canManage?: boolean; run: (fn: () => Promise<unknown>, ok?: string | ((r: any) => string)) => void;

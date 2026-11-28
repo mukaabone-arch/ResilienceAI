@@ -38,6 +38,9 @@ class Principal:
     roles: frozenset[str]
     is_external: bool
     is_automation: bool = False     # an integration acting on its linked activities (never a person)
+    is_agent: bool = False          # the bank's own AI agent, with scopes (see services/agents.py)
+    agent_id: UUID | None = None
+    agent_scopes: frozenset[str] = frozenset()
 
     def has(self, *roles: Role) -> bool:
         return any(r.value in self.roles for r in roles)
@@ -63,6 +66,7 @@ class Identity:
     tenant_id: UUID
     subject: str
     claims: dict = field(default_factory=dict)   # verified token claims (oidc only)
+    agent: dict | None = None                    # set when the caller is an agent
 
 
 # ---- Entra signing keys: fetched from the JWKS endpoint, cached, refreshed when a new key id appears ----
@@ -122,6 +126,15 @@ def verify_entra_token(token: str) -> dict:
 
 def _resolve(request: Request, x_tenant_id: str | None, x_user_subject: str | None) -> Identity:
     auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer ag."):                    # the bank's own AI agent
+        from .services import agents
+        try:
+            tenant_id, subject, agent = agents.resolve(auth[7:].strip())
+        except agents.AgentError as e:
+            if e.status_code == 401:
+                raise Unauthenticated(e.message) from e
+            raise
+        return Identity(tenant_id, subject, agent=agent)
     if auth.lower().startswith("bearer bg."):                    # a break-glass session (Entra unavailable)
         from .services import breakglass
         try:
@@ -189,6 +202,12 @@ def get_ctx(
             corr = UUID(x_correlation_id) if x_correlation_id else uuid4()
         except ValueError:
             corr = uuid4()
-        yield Ctx(conn=conn, correlation_id=corr, me=Principal(
+        ag = ident.agent
+        ctx = Ctx(conn=conn, correlation_id=corr, me=Principal(
             tenant_id=tenant_id, user_id=row["id"], display_name=row["display_name"],
-            roles=frozenset(row["roles"] or []), is_external=row["is_external"]))
+            roles=frozenset() if ag else frozenset(row["roles"] or []), is_external=row["is_external"],
+            is_agent=bool(ag), agent_id=ag["id"] if ag else None, agent_scopes=frozenset(ag["scopes"]) if ag else frozenset()))
+        if ag:
+            from .services import agents
+            agents.check_call(ctx, request.method, request.url.path)
+        yield ctx

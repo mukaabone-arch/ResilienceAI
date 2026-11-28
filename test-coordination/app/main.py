@@ -27,6 +27,22 @@ app = FastAPI(
 app.include_router(router, prefix="/api/v1")
 
 
+@app.middleware("http")
+async def log_agent_calls(request: Request, call_next):
+    """Every call an agent makes, allowed or refused, goes into the agent action log."""
+    response = await call_next(request)
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer ag."):
+        from starlette.concurrency import run_in_threadpool
+
+        from .services import agents
+        try:
+            await run_in_threadpool(agents.record_call, auth[7:].strip(), request.method, request.url.path, response.status_code)
+        except Exception as e:  # noqa: BLE001 - logging must not break the response
+            log.warning("couldn't record agent call: %s", e)
+    return response
+
+
 @app.exception_handler(DomainError)
 async def domain_error(_: Request, exc: DomainError):
     return JSONResponse(status_code=exc.status_code, content={"error": exc.message, "details": exc.details})

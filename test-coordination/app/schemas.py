@@ -319,3 +319,20 @@ class RunbookLinkIn(Model):
     extra_vars: dict[str, Any] = Field(default_factory=dict)
     timeout_minutes: int = Field(default=120, ge=1, le=1440)
     launch_mode: Literal["approve", "auto"] = "approve"
+
+
+class ActivityUpdateIn(Model):
+    message: str = Field(min_length=1, max_length=1500)
+
+
+class RunRequestIn(Model):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class RunDecisionIn(Model):
+    approve: bool
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SuspendIn(Model):
+    reason: str = Field(min_length=1, max_length=1000)

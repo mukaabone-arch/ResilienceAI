@@ -97,6 +97,7 @@ def _active_run(ctx: Ctx, activity_id: UUID) -> dict | None:
 def link(ctx: Ctx, activity_id: UUID, *, integration_id: UUID, job_template_id: int, extra_vars: dict | None,
          timeout_minutes: int = 120, launch_mode: str = "approve") -> dict:
     act, ev = child_of_event(ctx, "test_activities", activity_id, for_update=True)
+    authz.require_human(ctx, "link a runbook")
     authz.require_manage(ctx, ev)
     if S(ev["lifecycle_status"]) in (S.CLOSURE, S.CLOSED, S.CANCELLED):
         raise Conflict("This test is closing or closed; runbooks can't be linked now")
@@ -141,6 +142,7 @@ def link(ctx: Ctx, activity_id: UUID, *, integration_id: UUID, job_template_id: 
 
 
 def unlink(ctx: Ctx, activity_id: UUID) -> dict:
+    authz.require_human(ctx, "unlink a runbook")
     act, ev = child_of_event(ctx, "test_activities", activity_id, for_update=True)
     authz.require_manage(ctx, ev)
     rb = _runbook(ctx, activity_id)
@@ -172,10 +174,13 @@ def _graph_waiting(ctx: Ctx, ev: dict, activity_id: UUID) -> list[str]:
 
 def run(ctx: Ctx, activity_id: UUID) -> dict:
     """A person approves and launches the linked job template. Returns the run (status Error if AAP refused)."""
+    from .agents import accountable_for
     from .work import _is_activity_owner, update_activity
+    authz.require_human(ctx, "approve a runbook run (an agent can ask for one)")
     act, ev = child_of_event(ctx, "test_activities", activity_id, for_update=True)
-    if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev)):
-        raise Forbidden("Only the activity owner or the test manager can approve a run")
+    if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev) or accountable_for(ctx, act)):
+        raise Forbidden("Only the activity owner, the test manager or the accountable person of the agent that owns it "
+                        "can approve a run")
     if ctx.me.is_external:
         raise Forbidden("External users can't launch runbooks")
     rb = _runbook(ctx, activity_id)
@@ -231,10 +236,12 @@ def run(ctx: Ctx, activity_id: UUID) -> dict:
 
 
 def cancel(ctx: Ctx, run_id: UUID, why: str = "cancelled by a person") -> dict:
+    from .agents import accountable_for
     from .work import _is_activity_owner
+    authz.require_human(ctx, "cancel a run")
     rec, ev = child_of_event(ctx, "automation_runs", run_id, for_update=True)
     act = row(ctx, "test_activities", rec["activity_id"])
-    if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev)):
+    if not (_is_activity_owner(ctx, act) or authz.can_manage_event(ctx, ev) or accountable_for(ctx, act)):
         raise Forbidden("Only the activity owner or the test manager can cancel a run")
     if rec["status"] not in ACTIVE:
         raise Conflict(f"This run has already finished ({rec['status'].lower()})")

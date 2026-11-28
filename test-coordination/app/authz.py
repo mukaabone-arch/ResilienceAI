@@ -54,6 +54,12 @@ def is_stakeholder(ctx: Ctx, event_id) -> bool:
         s.c.event_id == event_id, s.c.user_id == ctx.me.user_id, s.c.is_active))).first() is not None
 
 
+def require_human(ctx: Ctx, what: str) -> None:
+    """Decisions stay with people: agents and integrations are refused, whatever else allows the call."""
+    if getattr(ctx.me, "is_agent", False) or getattr(ctx.me, "is_automation", False):
+        raise Forbidden(f"Only a person can {what}")
+
+
 def can_view_event(ctx: Ctx, event: Mapping) -> bool:
     if getattr(ctx.me, "is_automation", False):     # built only inside the server, for an integration's own runs
         return True

@@ -446,6 +446,7 @@ def transition(ctx: Ctx, event_id: UUID, action: str, *, reason: str | None = No
         raise Unprocessable(f"Unknown action '{action}'")
     authz.require_capability(ctx, tr.capability, ev)
     authz.require_writer(ctx)
+    authz.require_human(ctx, "change a test's stage")
     facts, gate = gather_facts(ctx, ev)
     try:
         lc.check_transition(S(ev["lifecycle_status"]), action, facts, reason)
